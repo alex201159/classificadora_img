@@ -15,6 +15,7 @@ class ClassificationVote:
     class_name: str
     confidence: float
     inliers: int
+    color_similarity: float = 0.0
 
 
 @dataclass
@@ -27,6 +28,7 @@ class TrackedCap:
     class_id: str | None = None
     class_name: str = "NAO RECONHECIDO"
     confidence: float = 0.0
+    color_similarity: float = 0.0
     hits: int = 1
     missed_frames: int = 0
     classification_attempts: int = 0

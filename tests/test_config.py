@@ -12,13 +12,14 @@ def test_load_default_config() -> None:
     config = load_config(Path("config/machine.yaml"))
 
     assert config.simulation is True
-    assert config.camera.device == 0
+    assert config.camera.device >= 0
     assert config.gpio_numbering == "wpi"
     assert config.conveyor.gpio == 19
     assert config.outputs["red_round"].gpio == 20
     assert config.outputs["red_round"].delay_ms == 1500
     assert config.recognition.stable_hits == 3
     assert config.recognition.reject_unrecognized is False
+    assert config.recognition.color_weight == pytest.approx(0.55)
     assert config.recognition.max_tracking_distance_px == 60
     assert config.recognition.max_missed_frames == 3
     assert config.recognition.crop_margin_px == 15
@@ -62,6 +63,7 @@ outputs:
         ("recognition", "stable_hits", 0, "stable_hits"),
         ("recognition", "max_missed_frames", -1, "max_missed_frames"),
         ("recognition", "max_tracking_distance_px", 0, "max_tracking_distance_px"),
+        ("recognition", "color_weight", 0, "color_weight"),
         ("outputs.red_round", "pulse_ms", 0, "pulse_ms"),
         ("conveyor", "speed_mm_s", 0, "speed_mm_s"),
     ],

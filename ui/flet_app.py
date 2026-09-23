@@ -58,6 +58,7 @@ class FletMachineApp:
             max_image_width=recognition.max_image_width,
             sift_features=recognition.sift_features,
             flann_checks=recognition.flann_checks,
+            color_weight=recognition.color_weight,
         )
         self.pipeline = ProductionPipeline(
             config,
@@ -314,6 +315,12 @@ class FletMachineApp:
         self.presence_area_field = ft.TextField(
             label="Area minima de presenca (%)",
             value=self._format_number(config.recognition.min_foreground_ratio * 100),
+            dense=True,
+            keyboard_type=ft.KeyboardType.NUMBER,
+        )
+        self.color_weight_field = ft.TextField(
+            label="Peso da cor (%)",
+            value=self._format_number(config.recognition.color_weight * 100),
             dense=True,
             keyboard_type=ft.KeyboardType.NUMBER,
         )
@@ -821,7 +828,7 @@ class FletMachineApp:
                     ft.Row([self.min_matches_field, self.min_inliers_field], spacing=8),
                     ft.Row([self.scan_interval_field, self.processing_width_field], spacing=8),
                     ft.Row([self.stable_hits_field, self.background_threshold_field], spacing=8),
-                    self.presence_area_field,
+                    ft.Row([self.presence_area_field, self.color_weight_field], spacing=8),
                     self.save_machine_button,
                     self.machine_settings_notice,
                 ],
@@ -998,9 +1005,16 @@ class FletMachineApp:
                 "background_threshold": self._parse_positive_int(
                     self.background_threshold_field.value, "sensibilidade do fundo"
                 ),
-                "min_foreground_ratio": self._parse_percentage(self.presence_area_field.value),
+                "min_foreground_ratio": self._parse_percentage(
+                    self.presence_area_field.value,
+                    "area minima",
+                ),
                 "max_image_width": self._parse_positive_int(
                     self.processing_width_field.value, "largura de processamento"
+                ),
+                "color_weight": self._parse_percentage(
+                    self.color_weight_field.value,
+                    "peso da cor",
                 ),
             }
             if not values["name"]:
@@ -1061,6 +1075,7 @@ class FletMachineApp:
             self.classifier.min_inliers = updated.recognition.min_inliers
             self.classifier.ambiguity_ratio = updated.recognition.ambiguity_ratio
             self.classifier.max_image_width = updated.recognition.max_image_width
+            self.classifier.color_weight = updated.recognition.color_weight
             if presence_changed:
                 self.result_name.value = "RECALIBRAR FUNDO"
                 self.result_name.color = AMBER
@@ -1361,10 +1376,10 @@ class FletMachineApp:
         return int(number)
 
     @staticmethod
-    def _parse_percentage(value: str | None) -> float:
+    def _parse_percentage(value: str | None, label: str) -> float:
         percentage = float((value or "").strip().replace(",", "."))
         if not 0 < percentage < 100:
-            raise ValueError("Area minima deve estar entre 0 e 100%")
+            raise ValueError(f"{label.capitalize()} deve estar entre 0 e 100%")
         return percentage / 100
 
     @staticmethod
@@ -1555,6 +1570,7 @@ class FletMachineApp:
                     self._last_result.good_matches,
                     self._last_result.inliers,
                     self._last_result.accepted,
+                    self._last_result.color_similarity,
                 )
                 self.result_name.value = renamed["name"].upper()
             self._refresh_classes()
@@ -1814,6 +1830,7 @@ class FletMachineApp:
         self.result_name.value = result.class_name
         self.result_detail.value = (
             f"{round(result.confidence * 100)}% DE CONFIANCA | "
+            f"COR {round(result.color_similarity * 100)}% | "
             f"{result.inliers} PONTOS | {round(self._last_latency_ms)} MS"
         )
         self.confidence_bar.value = result.confidence

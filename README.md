@@ -54,19 +54,22 @@ python main.py --flet
 ```
 
 No macOS, autorize o Python a acessar a camera quando o sistema solicitar. Para
-melhor reconhecimento, centralize o objeto no quadro verde e cadastre pelo
-menos tres imagens em distancias e inclinacoes ligeiramente diferentes.
+melhor reconhecimento, mantenha apenas uma peca no quadro amarelo e cadastre
+pelo menos tres imagens em distancias e inclinacoes ligeiramente diferentes.
 Antes de iniciar a operacao, retire o objeto da imagem e use **Calibrar fundo**.
 As amostras podem ser removidas pelo botao de lixeira na tela de cadastro.
 O nome da classe selecionada pode ser alterado pelo campo **Novo nome da
 classe**. A tela de operacao mostra a contagem total e a quantidade reconhecida
 de cada tipo durante a sessao atual.
 
-O perfil inicial de reconhecimento rapido processa os recortes das tampas com
-largura maxima de 640 px e inicia uma nova analise a cada 75 ms. Cada tampa
-recebe um ID e precisa acumular tres votos por padrao antes da decisao. ROI,
-distancia de tracking, tolerancia a frames perdidos e margem do crop ficam na
-secao `recognition` de `config/machine.yaml`. A tela mostra IDs, FPS e latencia.
+O reconhecimento combina correspondencias SIFT/FLANN com histogramas HSV
+aprendidos das proprias amostras. Isso permite separar pecas do mesmo formato
+com cores diferentes sem depender do nome informado no cadastro. O peso da cor
+e configuravel por `recognition.color_weight` e pela aba **Ajustes**. Cada tampa
+recebe um ID e precisa acumular tres votos antes da decisao. ROI, distancia de
+tracking, tolerancia a frames perdidos e margem do crop tambem ficam na secao
+`recognition` de `config/machine.yaml`. A tela mostra IDs, FPS, latencia e a
+similaridade de cor da classificacao.
 
 Na aba **Ajustes**, cada expulsor pode receber um GPIO wPi, o atraso entre o
 reconhecimento e o disparo e a duracao do pulso. A mesma tela permite adicionar

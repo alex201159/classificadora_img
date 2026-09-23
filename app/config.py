@@ -80,6 +80,7 @@ class RecognitionConfig:
     crop_margin_px: int
     min_detection_area_px: float
     reject_unrecognized: bool
+    color_weight: float
 
 
 @dataclass(frozen=True)
@@ -207,6 +208,10 @@ def load_config(path: str | Path) -> MachineConfig:
                 "recognition.min_detection_area_px",
             ),
             reject_unrecognized=bool(recognition.get("reject_unrecognized", True)),
+            color_weight=_ratio(
+                recognition.get("color_weight", 0.55),
+                "recognition.color_weight",
+            ),
         ),
     )
     _validate_config(parsed)

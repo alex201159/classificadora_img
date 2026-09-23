@@ -59,6 +59,7 @@ def test_machine_camera_and_recognition_settings_are_persisted(tmp_path: Path) -
         background_threshold=32,
         min_foreground_ratio=0.03,
         max_image_width=720,
+        color_weight=0.6,
     )
 
     assert updated.name == "Linha Principal"
@@ -68,3 +69,4 @@ def test_machine_camera_and_recognition_settings_are_persisted(tmp_path: Path) -
     assert updated.conveyor.speed_mm_s == 420
     assert updated.recognition.min_good_matches == 10
     assert updated.recognition.min_foreground_ratio == pytest.approx(0.03)
+    assert updated.recognition.color_weight == pytest.approx(0.6)

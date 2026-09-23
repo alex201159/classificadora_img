@@ -64,6 +64,7 @@ class MachineSettingsStore:
         background_threshold: int,
         min_foreground_ratio: float,
         max_image_width: int,
+        color_weight: float,
     ) -> MachineConfig:
         clean_name = name.strip()
         if not clean_name:
@@ -99,6 +100,7 @@ class MachineSettingsStore:
                     "background_threshold": background_threshold,
                     "min_foreground_ratio": min_foreground_ratio,
                     "max_image_width": max_image_width,
+                    "color_weight": color_weight,
                 }
             )
 

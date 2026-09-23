@@ -16,6 +16,7 @@ class ClassificationResult:
     good_matches: int
     inliers: int
     accepted: bool
+    color_similarity: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,8 @@ class _Reference:
     path: Path
     keypoints: Any
     descriptors: Any
+    color_histogram: Any
+    matcher: Any
 
 
 class ReferenceImageClassifier:
@@ -40,6 +43,7 @@ class ReferenceImageClassifier:
         max_image_width: int = 640,
         sift_features: int = 900,
         flann_checks: int = 16,
+        color_weight: float = 0.55,
     ) -> None:
         self.catalog = catalog
         self.ratio_threshold = ratio_threshold
@@ -49,11 +53,13 @@ class ReferenceImageClassifier:
         self.max_image_width = max_image_width
         self.sift_features = sift_features
         self.flann_checks = flann_checks
+        if not 0 < color_weight < 1:
+            raise ValueError("color_weight deve estar entre zero e um")
+        self.color_weight = color_weight
         self._references: list[_Reference] = []
         self._log = logging.getLogger(__name__)
         self._cv2 = self._import_cv2()
         self._detector = self._cv2.SIFT_create(nfeatures=sift_features)
-        self._matcher: Any | None = None
         self.reload()
 
     @property
@@ -67,11 +73,12 @@ class ReferenceImageClassifier:
                 path = self.catalog.media_path(cap_class["id"], sample["filename"])
                 if path is None:
                     continue
-                image = self._cv2.imread(str(path), self._cv2.IMREAD_GRAYSCALE)
+                image = self._cv2.imread(str(path), self._cv2.IMREAD_COLOR)
                 if image is None:
                     self._log.warning("Amostra ilegivel ignorada: %s", path)
                     continue
-                keypoints, descriptors = self._extract_features(image)
+                gray = self._to_gray(image)
+                keypoints, descriptors = self._extract_features(gray)
                 if descriptors is None or len(keypoints) < 80:
                     self._log.warning("Amostra sem detalhes suficientes ignorada: %s", path)
                     continue
@@ -82,10 +89,11 @@ class ReferenceImageClassifier:
                         path=path,
                         keypoints=keypoints,
                         descriptors=descriptors,
+                        color_histogram=self._color_histogram(image),
+                        matcher=self._build_matcher(descriptors),
                     )
                 )
         self._references = references
-        self._matcher = self._build_matcher(references)
         self._log.info("Classificador carregado com %d amostras", len(references))
         return len(references)
 
@@ -93,15 +101,26 @@ class ReferenceImageClassifier:
         if frame is None or not self._references:
             return self._unknown()
 
+        query_color = self._color_histogram(frame, mask)
         gray = self._to_gray(frame)
         query_keypoints, query_descriptors = self._extract_features(gray, mask)
         if query_descriptors is None or len(query_keypoints) < 40:
             return self._unknown()
 
-        best_by_class: dict[str, tuple[str, int, int, float]] = {}
+        best_by_class: dict[str, tuple[str, int, int, float, float]] = {}
         scores = self._score_references(query_keypoints, query_descriptors)
         for reference, (good_matches, inliers) in zip(self._references, scores, strict=True):
-            score = inliers + good_matches * 0.2
+            geometric_quality = min(1.0, inliers / max(self.min_inliers * 3, 1))
+            match_quality = min(1.0, good_matches / max(self.min_good_matches * 3, 1))
+            visual_score = geometric_quality * 0.75 + match_quality * 0.25
+            color_similarity = self._histogram_similarity(
+                query_color,
+                reference.color_histogram,
+            )
+            score = (
+                visual_score * (1.0 - self.color_weight)
+                + color_similarity * self.color_weight
+            )
             current = best_by_class.get(reference.class_id)
             if current is None or score > current[3]:
                 best_by_class[reference.class_id] = (
@@ -109,13 +128,14 @@ class ReferenceImageClassifier:
                     good_matches,
                     inliers,
                     score,
+                    color_similarity,
                 )
 
         ranked = sorted(best_by_class.items(), key=lambda item: item[1][3], reverse=True)
         if not ranked:
             return self._unknown()
 
-        class_id, (class_name, good_matches, inliers, best_score) = ranked[0]
+        class_id, (class_name, good_matches, inliers, best_score, color_similarity) = ranked[0]
         second_score = ranked[1][1][3] if len(ranked) > 1 else 0.0
         score_ratio = best_score / max(second_score, 0.01)
         accepted = (
@@ -124,9 +144,8 @@ class ReferenceImageClassifier:
             and score_ratio >= self.ambiguity_ratio
         )
 
-        quality = min(1.0, inliers / max(self.min_inliers * 3, 1))
         margin = min(1.0, max(0.0, score_ratio - 1.0) / 1.5)
-        confidence = min(0.99, quality * 0.72 + margin * 0.28)
+        confidence = min(0.99, best_score * 0.82 + margin * 0.18)
         if not accepted:
             return ClassificationResult(
                 class_id=None,
@@ -135,6 +154,7 @@ class ReferenceImageClassifier:
                 good_matches=good_matches,
                 inliers=inliers,
                 accepted=False,
+                color_similarity=color_similarity,
             )
         return ClassificationResult(
             class_id=class_id,
@@ -143,6 +163,7 @@ class ReferenceImageClassifier:
             good_matches=good_matches,
             inliers=inliers,
             accepted=True,
+            color_similarity=color_similarity,
         )
 
     def _score_references(
@@ -150,25 +171,22 @@ class ReferenceImageClassifier:
         query_keypoints: Any,
         query_descriptors: Any,
     ) -> list[tuple[int, int]]:
-        if self._matcher is None:
-            return [(0, 0) for _reference in self._references]
-        try:
-            pairs = self._matcher.knnMatch(query_descriptors, k=2)
-        except self._cv2.error:
-            return [(0, 0) for _reference in self._references]
-
-        matches_by_reference: list[list[Any]] = [[] for _reference in self._references]
-        for pair in pairs:
-            if len(pair) < 2:
+        scores: list[tuple[int, int]] = []
+        for reference in self._references:
+            try:
+                pairs = reference.matcher.knnMatch(query_descriptors, k=2)
+            except self._cv2.error:
+                scores.append((0, 0))
                 continue
-            match, neighbor = pair
-            if match.distance < self.ratio_threshold * neighbor.distance:
-                matches_by_reference[match.imgIdx].append(match)
-
-        return [
-            self._geometric_score(query_keypoints, reference, good)
-            for reference, good in zip(self._references, matches_by_reference, strict=True)
-        ]
+            good = []
+            for pair in pairs:
+                if len(pair) < 2:
+                    continue
+                match, neighbor = pair
+                if match.distance < self.ratio_threshold * neighbor.distance:
+                    good.append(match)
+            scores.append(self._geometric_score(query_keypoints, reference, good))
+        return scores
 
     def _geometric_score(
         self,
@@ -195,16 +213,66 @@ class ReferenceImageClassifier:
         inliers = int(mask.sum()) if mask is not None else 0
         return len(good), inliers
 
-    def _build_matcher(self, references: list[_Reference]) -> Any | None:
-        if not references:
-            return None
+    def _build_matcher(self, descriptors: Any) -> Any:
         matcher = self._cv2.FlannBasedMatcher(
             {"algorithm": 1, "trees": 4},
             {"checks": self.flann_checks},
         )
-        matcher.add([reference.descriptors for reference in references])
+        matcher.add([descriptors])
         matcher.train()
         return matcher
+
+    def _color_histogram(self, frame: Any, mask: Any | None = None) -> Any:
+        import numpy as np
+
+        if len(frame.shape) == 2:
+            color = self._cv2.cvtColor(frame, self._cv2.COLOR_GRAY2BGR)
+        else:
+            color = frame
+        hsv = self._cv2.cvtColor(color, self._cv2.COLOR_BGR2HSV)
+        valid = np.ones(hsv.shape[:2], dtype=bool)
+        if mask is not None:
+            if mask.shape[:2] != hsv.shape[:2]:
+                raise ValueError("mascara de cor deve ter o mesmo tamanho da imagem")
+            valid = mask > 0
+        pixels = hsv[valid]
+        if not len(pixels):
+            return np.zeros(68, dtype=np.float32)
+
+        saturation = pixels[:, 1].astype(np.float32)
+        cutoff = float(np.percentile(saturation, 55))
+        colorful = pixels[saturation >= cutoff]
+        colorful_saturation = colorful[:, 1].astype(np.float32) + 1.0
+        hue_hist, _edges = np.histogram(
+            colorful[:, 0],
+            bins=36,
+            range=(0, 180),
+            weights=colorful_saturation,
+        )
+        saturation_hist, _edges = np.histogram(pixels[:, 1], bins=16, range=(0, 256))
+        value_hist, _edges = np.histogram(pixels[:, 2], bins=16, range=(0, 256))
+        descriptor = np.concatenate(
+            (
+                self._normalize_histogram(hue_hist) * 0.70,
+                self._normalize_histogram(saturation_hist) * 0.15,
+                self._normalize_histogram(value_hist) * 0.15,
+            )
+        ).astype(np.float32)
+        return descriptor
+
+    @staticmethod
+    def _normalize_histogram(histogram: Any) -> Any:
+        import numpy as np
+
+        values = np.asarray(histogram, dtype=np.float32)
+        total = float(values.sum())
+        return values / total if total > 0 else np.zeros_like(values)
+
+    @staticmethod
+    def _histogram_similarity(first: Any, second: Any) -> float:
+        import numpy as np
+
+        return float(np.minimum(first, second).sum())
 
     def _extract_features(self, gray: Any, mask: Any | None = None) -> tuple[Any, Any]:
         gray, mask = self._resize(gray, mask)

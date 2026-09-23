@@ -122,6 +122,7 @@ class ProductionPipeline:
                     0,
                     max((vote.inliers for vote in decided.classification_votes), default=0),
                     True,
+                    decided.color_similarity,
                 )
 
             self.metrics.classification_ms = classification_total_ms
@@ -154,6 +155,7 @@ class ProductionPipeline:
                 class_name=result.class_name,
                 confidence=result.confidence,
                 inliers=result.inliers,
+                color_similarity=result.color_similarity,
             )
         )
 
@@ -180,6 +182,7 @@ class ProductionPipeline:
         cap.class_id = class_id
         cap.class_name = votes[-1].class_name
         cap.confidence = sum(vote.confidence for vote in votes) / len(votes)
+        cap.color_similarity = sum(vote.color_similarity for vote in votes) / len(votes)
         cap.counted = True
         self.controller.record_classification(cap.class_name)
         self.metrics.recognized_caps += 1
