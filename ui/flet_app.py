@@ -11,11 +11,13 @@ import flet as ft
 from app.cap_catalog import CapCatalog, CatalogError
 from app.config import MachineConfig, OutputConfig
 from app.controller import MachineController
+from app.production_pipeline import PipelineResult, ProductionPipeline
 from app.settings_store import MachineSettingsStore, SettingsError
 from camera.capture import CameraDetector
 from camera.stream import CameraStream
 from vision.reference_classifier import ClassificationResult, ReferenceImageClassifier
-from vision.presence_detector import BackgroundPresenceDetector
+from vision.roi import RoiError, resolve_roi
+from vision.tracker import TrackedCap
 
 
 INK = "#101828"
@@ -57,10 +59,13 @@ class FletMachineApp:
             sift_features=recognition.sift_features,
             flann_checks=recognition.flann_checks,
         )
-        self.presence_detector = BackgroundPresenceDetector(
-            threshold=recognition.background_threshold,
-            min_foreground_ratio=recognition.min_foreground_ratio,
+        self.pipeline = ProductionPipeline(
+            config,
+            controller,
+            self.classifier,
+            self._output_for_class,
         )
+        self.presence_detector = self.pipeline.presence_detector
         self.camera = camera
         self._log = logging.getLogger(__name__)
         self._active = True
@@ -68,10 +73,7 @@ class FletMachineApp:
         self._selected_class_id: str | None = None
         self._last_scan = 0.0
         self._last_display = 0.0
-        self._candidate_id: str | None = None
-        self._candidate_hits = 0
-        self._latched_id: str | None = None
-        self._unknown_hits = 0
+        self._active_tracks: list[TrackedCap] = []
         self._last_result = ClassificationResult(None, "AGUARDANDO", 0.0, 0, 0, False)
         self._last_latency_ms = 0.0
 
@@ -393,6 +395,15 @@ class FletMachineApp:
         self.footer_camera_status = ft.Text(
             "CAMERA: INICIALIZANDO", color=MUTED, size=10, weight=ft.FontWeight.BOLD
         )
+        self.footer_performance_status = ft.Text(
+            "VISAO: AGUARDANDO", color=MUTED, size=10, weight=ft.FontWeight.BOLD
+        )
+        self.footer_gpio_status = ft.Text(
+            "GPIO: SIMULACAO" if config.simulation else "GPIO: REAL",
+            color=MUTED,
+            size=10,
+            weight=ft.FontWeight.BOLD,
+        )
 
         self.nav_buttons: list[ft.Button] = []
         self.content_host = ft.Container(expand=True, padding=18)
@@ -562,8 +573,9 @@ class FletMachineApp:
             ft.Row(
                 [
                     self._footer_item(ft.Icons.SECURITY, self.footer_safety_status),
-                    self._footer_item(ft.Icons.MEMORY, "GPIO: SIMULACAO"),
+                    self._footer_item(ft.Icons.MEMORY, self.footer_gpio_status),
                     self._footer_item(ft.Icons.CAMERA_ALT_OUTLINED, self.footer_camera_status),
+                    self._footer_item(ft.Icons.SPEED, self.footer_performance_status),
                     ft.Container(expand=True),
                     self.footer_output_status,
                 ],
@@ -995,13 +1007,19 @@ class FletMachineApp:
             self.classifier.ambiguity_ratio = updated.recognition.ambiguity_ratio
             self.classifier.max_image_width = updated.recognition.max_image_width
             if presence_changed:
-                self.presence_detector = BackgroundPresenceDetector(
-                    threshold=updated.recognition.background_threshold,
-                    min_foreground_ratio=updated.recognition.min_foreground_ratio,
-                )
-                self._reset_stability()
                 self.result_name.value = "RECALIBRAR FUNDO"
                 self.result_name.color = AMBER
+
+            previous_presence = None if presence_changed else self.presence_detector
+            self.pipeline = ProductionPipeline(
+                updated,
+                self.controller,
+                self.classifier,
+                self._output_for_class,
+                presence_detector=previous_presence,
+            )
+            self.presence_detector = self.pipeline.presence_detector
+            self._reset_stability()
 
             self.machine_name_display.value = updated.name.upper()
             self.page.title = f"{updated.name} | Separador de Tampas"
@@ -1364,6 +1382,7 @@ class FletMachineApp:
             self._set_notice("Retire o objeto e pressione CALIBRAR FUNDO", error=True)
             return
         self.controller.start()
+        self.pipeline.reset()
         self.machine_badge.value = "EM OPERACAO"
         self.machine_status_icon.color = "#5FE0C1"
         self.machine_badge_container.bgcolor = "#075E54"
@@ -1408,7 +1427,14 @@ class FletMachineApp:
             return
         if self.controller.status.running:
             self._stop(_event)
-        self.presence_detector.calibrate(self._current_frame)
+        try:
+            self.pipeline.calibrate(self._current_frame)
+        except RoiError as exc:
+            self._set_notice(
+                f"{exc}; selecione a resolucao real da camera em Ajustes",
+                error=True,
+            )
+            return
         self.result_name.value = "FUNDO CALIBRADO"
         self.result_name.color = GREEN
         self.result_detail.value = "PRONTO PARA INICIAR"
@@ -1612,53 +1638,81 @@ class FletMachineApp:
         self.footer_camera_status.value = "CAMERA: CONECTADA"
         self.footer_camera_status.color = GREEN
         self.page.update()
+        consecutive_read_failures = 0
         while self._active:
-            self.controller.tick()
-            ok, frame = await asyncio.to_thread(self.camera.read)
-            if not ok or frame is None:
+            try:
+                self.controller.tick()
+            except Exception:
+                self._show_safe_ui("Falha no controle de saidas; maquina parada")
                 await asyncio.sleep(0.1)
                 continue
+            try:
+                ok, frame = await asyncio.to_thread(self.camera.read)
+            except Exception:
+                self._log.exception("Falha ao ler a camera")
+                ok, frame = False, None
+            if not ok or frame is None:
+                consecutive_read_failures += 1
+                if (
+                    self.controller.status.running
+                    and consecutive_read_failures >= self.config.camera.max_read_failures
+                ):
+                    self.controller.report_camera_failure("falha consecutiva na camera")
+                    self._show_safe_ui("Falha na camera; maquina parada")
+                await asyncio.sleep(0.1)
+                continue
+            consecutive_read_failures = 0
+            self.controller.status.camera_available = True
+            self.camera_badge.value = "CAMERA ATIVA"
+            self.camera_badge.color = GREEN
+            self.sidebar_camera_status.value = "CONECTADA"
+            self.sidebar_camera_status.color = "#5FE0C1"
+            self.footer_camera_status.value = "CAMERA: CONECTADA"
+            self.footer_camera_status.color = GREEN
             self._current_frame = frame.copy()
             now = time.monotonic()
+            self.pipeline.record_capture(now)
             interval = self.config.recognition.scan_interval_ms / 1000
             if self.controller.status.running and now - self._last_scan >= interval:
                 self._last_scan = now
                 try:
-                    presence = self.presence_detector.analyze(frame)
-                    if presence.present:
-                        classification_started = time.perf_counter()
-                        self._last_result = await asyncio.to_thread(
-                            self.classifier.classify,
-                            frame,
-                            presence.mask,
-                        )
-                        self._last_latency_ms = (
-                            time.perf_counter() - classification_started
-                        ) * 1000
-                        self._handle_result(self._last_result)
-                    else:
-                        self._last_result = ClassificationResult(
-                            None,
-                            "SEM OBJETO",
-                            0.0,
-                            0,
-                            0,
-                            False,
-                        )
-                        self._handle_no_object(presence.foreground_ratio)
+                    pipeline_result = await asyncio.to_thread(
+                        self.pipeline.process,
+                        frame,
+                        now,
+                    )
+                    self._active_tracks = pipeline_result.tracks
+                    self._last_latency_ms = self.pipeline.metrics.classification_ms
+                    self.footer_performance_status.value = (
+                        f"CAP {self.pipeline.metrics.capture_fps:.1f} FPS | "
+                        f"PROC {self.pipeline.metrics.processing_fps:.1f} FPS | "
+                        f"{self.pipeline.metrics.average_latency_ms:.0f} MS"
+                    )
+                    self.footer_performance_status.color = GREEN
+                    self._handle_pipeline_result(pipeline_result)
                 except Exception:
                     self._log.exception("Falha no reconhecimento")
                     self.controller.enter_safe_state("falha no reconhecimento")
-                    self._set_notice("Falha no reconhecimento; maquina parada", error=True)
+                    self._show_safe_ui("Falha no reconhecimento; maquina parada")
 
             if now - self._last_display >= 0.1:
                 self._last_display = now
-                display_frame = self._annotate_frame(frame, self._last_result)
+                display_frame = self._annotate_frame(
+                    frame,
+                    self._last_result,
+                    self._active_tracks,
+                )
                 self.camera_image.src = self._encode_frame(display_frame)
                 self.page.update()
             await asyncio.sleep(0.02)
 
-    def _handle_result(self, result: ClassificationResult) -> None:
+    def _handle_pipeline_result(self, pipeline_result: PipelineResult) -> None:
+        result = pipeline_result.last_classification
+        self._last_result = result
+        if not pipeline_result.detections:
+            self._handle_no_object(pipeline_result.presence.foreground_ratio)
+            self._refresh_counts()
+            return
         self.result_name.value = result.class_name
         self.result_detail.value = (
             f"{round(result.confidence * 100)}% DE CONFIANCA | "
@@ -1667,36 +1721,8 @@ class FletMachineApp:
         self.confidence_bar.value = result.confidence
         if result.accepted:
             self.result_name.color = GREEN
-            self._unknown_hits = 0
-            if result.class_id == self._candidate_id:
-                self._candidate_hits += 1
-            else:
-                self._candidate_id = result.class_id
-                self._candidate_hits = 1
-            if (
-                self._candidate_hits >= self.config.recognition.stable_hits
-                and self._latched_id != result.class_id
-            ):
-                self.controller.record_classification(result.class_name)
-                self._latched_id = result.class_id
-                cap_class = next(
-                    (
-                        item
-                        for item in self.catalog.list_classes()
-                        if item["id"] == result.class_id
-                    ),
-                    None,
-                )
-                if cap_class is not None:
-                    delay_s = self.controller.schedule_ejection(cap_class["output"])
-                    self._set_notice(f"Expulsao agendada em {delay_s:.2f} s")
         else:
             self.result_name.color = RED
-            self._unknown_hits += 1
-            self._candidate_id = None
-            self._candidate_hits = 0
-            if self._unknown_hits >= 3:
-                self._latched_id = None
         self._refresh_counts()
 
     def _handle_no_object(self, foreground_ratio: float) -> None:
@@ -1704,11 +1730,6 @@ class FletMachineApp:
         self.result_name.color = MUTED
         self.result_detail.value = f"FUNDO ESTAVEL | ALTERACAO {foreground_ratio * 100:.1f}%"
         self.confidence_bar.value = 0
-        self._unknown_hits += 1
-        self._candidate_id = None
-        self._candidate_hits = 0
-        if self._unknown_hits >= 2:
-            self._latched_id = None
 
     def _refresh_counts(self) -> None:
         self.total_count.value = str(self.controller.status.total_caps)
@@ -1749,26 +1770,79 @@ class FletMachineApp:
         self.ejection_state.value = f"{count} {'JATO' if count == 1 else 'JATOS'}"
 
     def _reset_stability(self) -> None:
-        self._candidate_id = None
-        self._candidate_hits = 0
-        self._latched_id = None
-        self._unknown_hits = 0
+        self.pipeline.reset()
+        self._active_tracks = []
+
+    def _output_for_class(self, class_id: str) -> str | None:
+        cap_class = next(
+            (item for item in self.catalog.list_classes() if item["id"] == class_id),
+            None,
+        )
+        return None if cap_class is None else str(cap_class["output"])
+
+    def _show_safe_ui(self, message: str) -> None:
+        self.machine_badge.value = "FALHA"
+        self.machine_status_icon.color = "#FDA29B"
+        self.machine_badge_container.bgcolor = RED
+        self.sidebar_machine_status.value = "PARADA POR FALHA"
+        self.sidebar_machine_status.color = "#FDA29B"
+        self.footer_safety_status.value = "ESTADO SEGURO"
+        self.footer_safety_status.color = RED
+        self.start_button.disabled = False
+        self.stop_button.disabled = True
+        self._reset_stability()
+        self._set_notice(message, error=True)
 
     def _set_notice(self, message: str, error: bool = False) -> None:
         self.notice.value = message
         self.notice.color = RED if error else MUTED
         self.page.update()
 
-    @staticmethod
-    def _annotate_frame(frame: Any, result: ClassificationResult) -> Any:
+    def _annotate_frame(
+        self,
+        frame: Any,
+        result: ClassificationResult,
+        tracks: list[TrackedCap] | None = None,
+    ) -> Any:
         import cv2
 
         rendered = frame.copy()
-        height, width = rendered.shape[:2]
-        x1, y1 = int(width * 0.12), int(height * 0.12)
-        x2, y2 = int(width * 0.88), int(height * 0.88)
+        try:
+            roi = resolve_roi(rendered, self.config.camera.roi)
+        except RoiError:
+            height, width = rendered.shape[:2]
+            cv2.rectangle(rendered, (2, 2), (width - 3, height - 3), (0, 0, 220), 3)
+            cv2.putText(
+                rendered,
+                "ROI INVALIDA - AJUSTE A RESOLUCAO DA CAMERA",
+                (20, 42),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.65,
+                (0, 0, 220),
+                2,
+                cv2.LINE_AA,
+            )
+            return rendered
+        x1, y1, x2, y2 = roi.x, roi.y, roi.x2, roi.y2
         color = (91, 127, 8) if result.accepted else (91, 196, 49)
         cv2.rectangle(rendered, (x1, y1), (x2, y2), color, 3)
+        for cap in tracks or []:
+            x, y, width, height = cap.bounding_box
+            track_color = (30, 180, 70) if cap.class_id else (0, 170, 255)
+            cv2.rectangle(rendered, (x, y), (x + width, y + height), track_color, 2)
+            label = f"ID {cap.id}"
+            if cap.class_id:
+                label += f" | {cap.class_name}"
+            cv2.putText(
+                rendered,
+                label,
+                (x, max(20, y - 8)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                track_color,
+                2,
+                cv2.LINE_AA,
+            )
         if result.class_name not in {"AGUARDANDO", "NAO RECONHECIDO"}:
             cv2.rectangle(rendered, (x1, y1 - 42), (min(x2, x1 + 520), y1), color, -1)
             cv2.putText(

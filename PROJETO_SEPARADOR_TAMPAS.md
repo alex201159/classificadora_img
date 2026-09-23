@@ -566,3 +566,26 @@ visão ainda deve começar pela validação da câmera.
   de câmera só é aceita após receber um quadro; em caso de falha, o dispositivo
   anterior é restaurado. Alterações de câmera ou presença invalidam a
   calibração do fundo.
+- O fluxo de produção integra a ROI configurada, detector de presença,
+  `CapDetector`, `CentroidTracker` e `ReferenceImageClassifier`. Cada tampa
+  mantém um ID, bounding box, votos e flags próprias de contagem e agendamento.
+  A classificação usa um crop com margem e consolida votos por maioria,
+  confiança e inliers; contagem e agendamento ocorrem no máximo uma vez por ID.
+- A ROI de `camera.roi` é a referência única para presença, detecção, crops e
+  anotação. Coordenadas produzidas em recortes retornam ao espaço global do
+  frame. A ROI fixa de 12% a 88% existe somente como fallback compatível quando
+  o detector de presença é criado sem ROI explícita.
+- O tracker associa cada detecção a no máximo um ID, tolera frames ausentes por
+  `max_missed_frames` e expõe tracks removidos para finalizar peças não
+  reconhecidas pela saída `reject`, quando configurada.
+- O scheduler usa contagem de pulsos ativos por saída. Janelas sobrepostas ou
+  contíguas não produzem um desligamento intermediário da válvula.
+- Os estados de máquina são `IDLE`, `RUNNING`, `STOPPED` e `FAULT`. Falhas de
+  câmera, visão ou scheduler durante produção levam ao estado seguro, param a
+  esteira, limpam eventos e desligam válvulas.
+- A telemetria inclui FPS de captura/processamento, tempos de detecção e
+  classificação, latência média/máxima, tampas detectadas/reconhecidas/não
+  reconhecidas, rejeições, agendamentos e falhas, sem log INFO por frame.
+- Nenhum GPIO físico foi alterado nesta fase. A pinagem permanece sujeita à
+  validação progressiva no Orange Pi com LED, driver isolado e somente depois
+  o estágio de potência e a pneumática.

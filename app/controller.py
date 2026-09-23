@@ -3,8 +3,10 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 
 from app.config import MachineConfig, OutputConfig
+from app.metrics import PipelineMetrics
 from camera.capture import CameraDetector
 from hardware.gpio import OrangePiGPIO, SimulatedGPIO
 from hardware.conveyor import ConveyorController
@@ -12,8 +14,16 @@ from hardware.valves import ValveController
 from scheduler.ejector import EjectorScheduler
 
 
+class MachineState(str, Enum):
+    IDLE = "IDLE"
+    RUNNING = "RUNNING"
+    STOPPED = "STOPPED"
+    FAULT = "FAULT"
+
+
 @dataclass
 class MachineStatus:
+    state: MachineState = MachineState.IDLE
     running: bool = False
     safe_state: bool = True
     camera_available: bool = False
@@ -23,6 +33,8 @@ class MachineStatus:
     conveyor_running: bool = False
     scheduled_ejections: int = 0
     last_ejection_output: str | None = None
+    failure_reason: str | None = None
+    metrics: PipelineMetrics = field(default_factory=PipelineMetrics)
 
 
 class MachineController:
@@ -52,6 +64,8 @@ class MachineController:
                 return self.status
 
         self.status.safe_state = True
+        self.status.state = MachineState.IDLE
+        self.status.failure_reason = None
         return self.status
 
     def start(self) -> None:
@@ -63,6 +77,8 @@ class MachineController:
             self.status.conveyor_running = True
             self.status.running = True
             self.status.safe_state = False
+            self.status.state = MachineState.RUNNING
+            self.status.failure_reason = None
             self._log.info("Producao iniciada; esteira ligada")
         except Exception:
             self._log.exception("Falha ao ligar a esteira")
@@ -70,11 +86,21 @@ class MachineController:
 
     def stop(self) -> None:
         self.status.running = False
-        self.enter_safe_state("parada solicitada")
+        self.enter_safe_state("parada solicitada", fault=False)
+
+    def report_camera_failure(self, reason: str = "camera indisponivel durante producao") -> None:
+        self.status.camera_available = False
+        if self.status.running:
+            self.enter_safe_state(reason)
 
     def tick(self) -> None:
         now = time.monotonic()
-        self.scheduler.tick(now)
+        try:
+            self.scheduler.tick(now)
+        except Exception:
+            self._log.exception("Falha no scheduler de expulsao")
+            self.enter_safe_state("falha no scheduler de expulsao")
+            raise
 
     def schedule_ejection(self, output_name: str, immediate: bool = False) -> float:
         if not self.status.running and not self.config.simulation:
@@ -138,15 +164,30 @@ class MachineController:
                 self.status.counters_by_class.get(new_name, 0) + previous_count
             )
 
-    def enter_safe_state(self, reason: str) -> None:
+    def enter_safe_state(self, reason: str, *, fault: bool = True) -> None:
         self._log.warning("Entrando em estado seguro: %s", reason)
         self.status.running = False
         self.status.safe_state = True
         self.status.conveyor_running = False
-        self.conveyor.stop()
-        self.scheduler.clear()
+        self.status.state = MachineState.FAULT if fault else MachineState.STOPPED
+        self.status.failure_reason = reason if fault else None
+        if fault:
+            self.status.metrics.failures += 1
+
+        try:
+            self.conveyor.stop()
+        except Exception:
+            self._log.exception("Falha ao desligar esteira durante estado seguro")
+        try:
+            self.scheduler.clear()
+        except Exception:
+            self._log.exception("Falha ao limpar scheduler durante estado seguro")
+            try:
+                self.valves.all_off()
+            except Exception:
+                self._log.exception("Falha ao desligar valvulas durante estado seguro")
 
     def shutdown(self) -> None:
         self._log.info("Encerrando controlador")
-        self.enter_safe_state("shutdown")
+        self.enter_safe_state("shutdown", fault=False)
         self.gpio.close()

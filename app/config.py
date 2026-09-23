@@ -22,6 +22,7 @@ class CameraConfig:
     height: int
     fps: int
     roi: RoiConfig
+    max_read_failures: int
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,10 @@ class RecognitionConfig:
     max_image_width: int
     sift_features: int
     flann_checks: int
+    max_tracking_distance_px: float
+    max_missed_frames: int
+    crop_margin_px: int
+    min_detection_area_px: float
 
 
 @dataclass(frozen=True)
@@ -126,6 +131,9 @@ def load_config(path: str | Path) -> MachineConfig:
                 y=_non_negative_int(roi.get("y", 0), "camera.roi.y"),
                 width=_positive_int(roi.get("width"), "camera.roi.width"),
                 height=_positive_int(roi.get("height"), "camera.roi.height"),
+            ),
+            max_read_failures=_positive_int(
+                camera.get("max_read_failures", 5), "camera.max_read_failures"
             ),
         ),
         conveyor=ConveyorConfig(
@@ -181,6 +189,21 @@ def load_config(path: str | Path) -> MachineConfig:
             ),
             flann_checks=_positive_int(
                 recognition.get("flann_checks", 16), "recognition.flann_checks"
+            ),
+            max_tracking_distance_px=_positive_float(
+                recognition.get("max_tracking_distance_px", 60),
+                "recognition.max_tracking_distance_px",
+            ),
+            max_missed_frames=_non_negative_int(
+                recognition.get("max_missed_frames", 3),
+                "recognition.max_missed_frames",
+            ),
+            crop_margin_px=_non_negative_int(
+                recognition.get("crop_margin_px", 15), "recognition.crop_margin_px"
+            ),
+            min_detection_area_px=_positive_float(
+                recognition.get("min_detection_area_px", 150),
+                "recognition.min_detection_area_px",
             ),
         ),
     )

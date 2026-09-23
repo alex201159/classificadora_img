@@ -153,13 +153,29 @@ class WebInterface:
 
     def _status_payload(self) -> dict[str, Any]:
         status = self.controller.status
+        metrics = status.metrics
         return {
+            "state": status.state.value,
             "running": status.running,
             "safe_state": status.safe_state,
             "camera_available": status.camera_available,
             "total_caps": status.total_caps,
             "rejected_caps": status.rejected_caps,
             "counters_by_class": status.counters_by_class,
+            "metrics": {
+                "capture_fps": metrics.capture_fps,
+                "processing_fps": metrics.processing_fps,
+                "detection_ms": metrics.detection_ms,
+                "classification_ms": metrics.classification_ms,
+                "average_latency_ms": metrics.average_latency_ms,
+                "max_latency_ms": metrics.max_latency_ms,
+                "detected_caps": metrics.detected_caps,
+                "recognized_caps": metrics.recognized_caps,
+                "unrecognized_caps": metrics.unrecognized_caps,
+                "rejected_caps": metrics.rejected_caps,
+                "scheduled_ejections": metrics.scheduled_ejections,
+                "failures": metrics.failures,
+            },
         }
 
     def _serve_media(self, handler: BaseHTTPRequestHandler, path: str) -> None:

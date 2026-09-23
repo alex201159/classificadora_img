@@ -11,6 +11,9 @@ Base inicial em Python para o separador automatico descrito em
 - Interface local para operacao e cadastro de imagens das tampas.
 - Temporizacao e multiplas saidas de expulsao configuraveis pela interface.
 - Backend GPIO wiringOP implementado, com simulacao ativa por padrao.
+- Pipeline de producao com ROI unica, deteccao, IDs persistentes, votacao por
+  tampa e decisao unica de contagem/expulsao.
+- Scheduler nao bloqueante que preserva pulsos sobrepostos na mesma valvula.
 
 ## Uso
 
@@ -59,10 +62,11 @@ O nome da classe selecionada pode ser alterado pelo campo **Novo nome da
 classe**. A tela de operacao mostra a contagem total e a quantidade reconhecida
 de cada tipo durante a sessao atual.
 
-O perfil inicial de reconhecimento rapido processa imagens com largura maxima
-de 640 px e inicia uma nova analise a cada 75 ms. Esses valores sao ajustaveis
-na secao `recognition` de `config/machine.yaml`; a tela mostra a latencia real
-de cada classificacao.
+O perfil inicial de reconhecimento rapido processa os recortes das tampas com
+largura maxima de 640 px e inicia uma nova analise a cada 75 ms. Cada tampa
+recebe um ID e precisa acumular tres votos por padrao antes da decisao. ROI,
+distancia de tracking, tolerancia a frames perdidos e margem do crop ficam na
+secao `recognition` de `config/machine.yaml`. A tela mostra IDs, FPS e latencia.
 
 Na aba **Ajustes**, cada expulsor pode receber um GPIO wPi, o atraso entre o
 reconhecimento e o disparo e a duracao do pulso. A mesma tela permite adicionar
@@ -99,8 +103,8 @@ pytest
 O sistema inicia com as valvulas e a esteira desligadas. A configuracao usa
 numeracao wiringOP: wPi 19 no pino fisico 29 (PD0) para a esteira e wPi 20 no
 pino fisico 31 (PD1) para o primeiro expulsor. O pino fisico 30 pode ser usado
-como referencia GND do circuito de interface. O modo real depende do
-`wiringOP-Python` no Orange Pi.
+como referencia GND do circuito de interface. O modo real aceita o modulo
+`wiringOP-Python` ou a `libwiringPi.so` do wiringOP no Orange Pi.
 
 Nunca ligue motor, contator ou valvula diretamente ao GPIO. Use modulo de rele
 ou driver MOSFET/optoacoplado dimensionado para a carga e protecao de retorno

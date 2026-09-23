@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from hardware.gpio import OrangePiGPIO, _CtypesWiringPi
+from hardware.gpio import OrangePiGPIO, SimulatedGPIO, _CtypesWiringPi
 
 
 class FakeFunction:
@@ -43,3 +43,15 @@ def test_orangepi_gpio_sets_outputs_low_and_closes_safely() -> None:
     gpio.close()
 
     assert wiringpi._library.digitalWrite.calls == [(19, 0), (19, 1), (19, 0)]
+
+
+def test_simulated_gpio_finishes_with_all_outputs_off() -> None:
+    gpio = SimulatedGPIO()
+    gpio.setup_output(19)
+    gpio.setup_output(20)
+    gpio.write(19, True)
+    gpio.write(20, True)
+
+    gpio.close()
+
+    assert gpio.states == {19: False, 20: False}

@@ -7,6 +7,7 @@ camera:
   width: 1920
   height: 1080
   fps: 30
+  max_read_failures: 5
   roi:
     x: 0
     y: 0
@@ -47,9 +48,13 @@ recognition:
   min_inliers: 5
   ambiguity_ratio: 1.12
   scan_interval_ms: 75
-  stable_hits: 1
+  stable_hits: 3
   background_threshold: 28
   min_foreground_ratio: 0.025
   max_image_width: 640
   sift_features: 900
   flann_checks: 16
+  max_tracking_distance_px: 60
+  max_missed_frames: 3
+  crop_margin_px: 15
+  min_detection_area_px: 150
