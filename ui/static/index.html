@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#171a1f">
+  <title>Separador de Tampas</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-block">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <strong>SEPARADOR DE TAMPAS</strong>
+          <span id="machine-name">separador_tampas</span>
+        </div>
+      </div>
+      <div class="topbar-status">
+        <span id="mode-badge" class="badge warning">SIMULAÇÃO</span>
+        <span id="machine-badge" class="badge neutral">PARADO</span>
+        <time id="clock">--:--</time>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="Navegação principal">
+      <button class="tab active" data-view="operation">OPERAÇÃO</button>
+      <button class="tab" data-view="registration">CADASTRO</button>
+      <button class="tab" data-view="settings">AJUSTES</button>
+    </nav>
+
+    <main>
+      <section id="operation" class="view active" aria-label="Operação">
+        <div class="operation-grid">
+          <div class="camera-panel">
+            <div class="section-heading">
+              <h1>Câmera de inspeção</h1>
+              <span id="camera-state" class="inline-state">DESLIGADA</span>
+            </div>
+            <div class="camera-frame">
+              <video id="operation-video" autoplay muted playsinline></video>
+              <div class="camera-empty">
+                <span class="camera-symbol" aria-hidden="true"></span>
+                <strong>SEM IMAGEM</strong>
+              </div>
+              <div class="roi-guide" aria-hidden="true"></div>
+            </div>
+          </div>
+
+          <aside class="production-panel">
+            <div class="section-heading">
+              <h2>Produção</h2>
+              <span id="safety-state" class="inline-state safe">SEGURA</span>
+            </div>
+            <div class="current-product">
+              <span>Classe atual</span>
+              <strong id="current-class">NÃO SELECIONADA</strong>
+            </div>
+            <div class="metrics">
+              <div class="metric">
+                <span>TOTAL</span>
+                <strong id="total-count">0</strong>
+              </div>
+              <div class="metric reject">
+                <span>REJEITADAS</span>
+                <strong id="reject-count">0</strong>
+              </div>
+            </div>
+            <div class="operation-actions">
+              <button id="start-machine" class="action-button start">INICIAR</button>
+              <button id="stop-machine" class="action-button stop" disabled>PARAR</button>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="registration" class="view" aria-label="Cadastro de tampas">
+        <div class="registration-grid">
+          <div class="capture-panel">
+            <div class="section-heading">
+              <h1>Imagem da tampa</h1>
+              <span id="selected-class-label" class="inline-state">NENHUMA CLASSE</span>
+            </div>
+            <div class="camera-frame registration-camera">
+              <video id="registration-video" autoplay muted playsinline></video>
+              <div class="camera-empty">
+                <span class="camera-symbol" aria-hidden="true"></span>
+                <strong>SEM IMAGEM</strong>
+              </div>
+            </div>
+            <canvas id="capture-canvas" hidden></canvas>
+            <input id="image-file" type="file" accept="image/jpeg,image/png" hidden>
+            <div class="capture-actions">
+              <button id="enable-camera" class="secondary-button">ATIVAR CÂMERA</button>
+              <button id="capture-image" class="primary-button">CAPTURAR</button>
+              <button id="choose-image" class="secondary-button">ARQUIVO</button>
+            </div>
+          </div>
+
+          <div class="catalog-panel">
+            <div class="section-heading">
+              <h2>Novo tipo</h2>
+              <span id="class-count" class="inline-state">0 CADASTROS</span>
+            </div>
+            <form id="class-form" class="class-form">
+              <label class="wide-field">
+                <span>Nome da tampa</span>
+                <input id="class-name" name="name" maxlength="60" placeholder="Ex.: Vermelha 28 mm" required>
+              </label>
+              <label>
+                <span>Cor</span>
+                <select id="class-color" name="color">
+                  <option value="vermelha">Vermelha</option>
+                  <option value="azul">Azul</option>
+                  <option value="verde">Verde</option>
+                  <option value="amarela">Amarela</option>
+                  <option value="branca">Branca</option>
+                  <option value="preta">Preta</option>
+                  <option value="outra">Outra</option>
+                </select>
+              </label>
+              <label>
+                <span>Formato</span>
+                <select id="class-shape" name="shape">
+                  <option value="redonda">Redonda</option>
+                  <option value="quadrada">Quadrada</option>
+                  <option value="oval">Oval</option>
+                  <option value="outro">Outro</option>
+                </select>
+              </label>
+              <label class="wide-field">
+                <span>Saída</span>
+                <select id="class-output" name="output"></select>
+              </label>
+              <button type="submit" class="primary-button wide-field">CADASTRAR TIPO</button>
+            </form>
+
+            <div id="class-list" class="class-list" aria-live="polite">
+              <div class="empty-list">Nenhuma tampa cadastrada</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="settings" class="view" aria-label="Ajustes">
+        <div class="settings-layout">
+          <div class="section-heading">
+            <h1>Configuração ativa</h1>
+            <span class="inline-state safe">MODO SEGURO</span>
+          </div>
+          <dl class="settings-list">
+            <div><dt>Máquina</dt><dd id="setting-machine">-</dd></div>
+            <div><dt>Câmera</dt><dd id="setting-camera">-</dd></div>
+            <div><dt>Saídas</dt><dd id="setting-outputs">-</dd></div>
+            <div><dt>GPIO real</dt><dd>BLOQUEADO</dd></div>
+            <div><dt>Catálogo</dt><dd>ARMAZENAMENTO LOCAL</dd></div>
+          </dl>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

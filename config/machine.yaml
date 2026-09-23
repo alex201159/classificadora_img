@@ -1,0 +1,55 @@
+machine:
+  name: classificadora_tampas
+  simulation: true
+  gpio_numbering: wpi
+camera:
+  device: 0
+  width: 1920
+  height: 1080
+  fps: 30
+  roi:
+    x: 0
+    y: 0
+    width: 1920
+    height: 1080
+conveyor:
+  speed_mm_s: 300.0
+  gpio: 19
+  active_high: true
+timing:
+  processing_latency_ms: 0
+  valve_response_ms: 0
+outputs:
+  red_round:
+    gpio: 20
+    active_high: true
+    delay_ms: 1500
+    distance_mm: 500
+    pulse_ms: 80
+  reject:
+    gpio: null
+    active_high: true
+    delay_ms: 1500
+    distance_mm: 500
+    pulse_ms: 100
+logging:
+  level: INFO
+  file: logs/separador.log
+interface:
+  host: 127.0.0.1
+  port: 8080
+  open_browser: true
+  catalog_file: data/cap_catalog.json
+  images_dir: data/cap_images
+recognition:
+  ratio_threshold: 0.72
+  min_good_matches: 8
+  min_inliers: 5
+  ambiguity_ratio: 1.12
+  scan_interval_ms: 75
+  stable_hits: 1
+  background_threshold: 28
+  min_foreground_ratio: 0.025
+  max_image_width: 640
+  sift_features: 900
+  flann_checks: 16

@@ -1,0 +1,104 @@
+{
+  "classes": [
+    {
+      "id": "lc_teste",
+      "name": "carrinho verde",
+      "color": "vermelha",
+      "shape": "redonda",
+      "output": "red_round",
+      "created_at": "2026-09-22T23:31:29.794200+00:00",
+      "samples": [
+        {
+          "filename": "20260922_205557_28287d96.jpg",
+          "created_at": "2026-09-22T23:55:57.413079+00:00",
+          "url": "/media/lc_teste/20260922_205557_28287d96.jpg"
+        },
+        {
+          "filename": "20260922_210334_409f17e6.jpg",
+          "created_at": "2026-09-23T00:03:34.083849+00:00",
+          "url": "/media/lc_teste/20260922_210334_409f17e6.jpg"
+        },
+        {
+          "filename": "20260922_210335_43f38922.jpg",
+          "created_at": "2026-09-23T00:03:35.158592+00:00",
+          "url": "/media/lc_teste/20260922_210335_43f38922.jpg"
+        },
+        {
+          "filename": "20260922_210338_a6bd1bce.jpg",
+          "created_at": "2026-09-23T00:03:38.387071+00:00",
+          "url": "/media/lc_teste/20260922_210338_a6bd1bce.jpg"
+        },
+        {
+          "filename": "20260922_210342_c2bf6b3f.jpg",
+          "created_at": "2026-09-23T00:03:42.446399+00:00",
+          "url": "/media/lc_teste/20260922_210342_c2bf6b3f.jpg"
+        },
+        {
+          "filename": "20260922_210347_38fa337a.jpg",
+          "created_at": "2026-09-23T00:03:47.934817+00:00",
+          "url": "/media/lc_teste/20260922_210347_38fa337a.jpg"
+        }
+      ]
+    },
+    {
+      "id": "alex",
+      "name": "trator",
+      "color": "vermelha",
+      "shape": "redonda",
+      "output": "red_round",
+      "created_at": "2026-09-22T23:31:53.945959+00:00",
+      "samples": [
+        {
+          "filename": "20260922_210307_ff6288d8.jpg",
+          "created_at": "2026-09-23T00:03:07.825592+00:00",
+          "url": "/media/alex/20260922_210307_ff6288d8.jpg"
+        },
+        {
+          "filename": "20260922_210312_feb550ad.jpg",
+          "created_at": "2026-09-23T00:03:12.953098+00:00",
+          "url": "/media/alex/20260922_210312_feb550ad.jpg"
+        },
+        {
+          "filename": "20260922_210319_aed82c9e.jpg",
+          "created_at": "2026-09-23T00:03:19.271180+00:00",
+          "url": "/media/alex/20260922_210319_aed82c9e.jpg"
+        },
+        {
+          "filename": "20260922_210324_8968af2b.jpg",
+          "created_at": "2026-09-23T00:03:24.802756+00:00",
+          "url": "/media/alex/20260922_210324_8968af2b.jpg"
+        }
+      ]
+    },
+    {
+      "id": "carrinho_vermelh",
+      "name": "carrinho vermelh",
+      "color": "vermelha",
+      "shape": "redonda",
+      "output": "red_round",
+      "created_at": "2026-09-23T00:19:48.054224+00:00",
+      "samples": [
+        {
+          "filename": "20260922_211957_481a7fc9.jpg",
+          "created_at": "2026-09-23T00:19:57.459911+00:00",
+          "url": "/media/carrinho_vermelh/20260922_211957_481a7fc9.jpg"
+        },
+        {
+          "filename": "20260922_212001_8dbf9c5b.jpg",
+          "created_at": "2026-09-23T00:20:01.762543+00:00",
+          "url": "/media/carrinho_vermelh/20260922_212001_8dbf9c5b.jpg"
+        },
+        {
+          "filename": "20260922_212005_1a3201ab.jpg",
+          "created_at": "2026-09-23T00:20:05.276967+00:00",
+          "url": "/media/carrinho_vermelh/20260922_212005_1a3201ab.jpg"
+        },
+        {
+          "filename": "20260922_212011_a98887b9.jpg",
+          "created_at": "2026-09-23T00:20:11.575493+00:00",
+          "url": "/media/carrinho_vermelh/20260922_212011_a98887b9.jpg"
+        }
+      ]
+    }
+  ]
+}
