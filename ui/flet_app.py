@@ -76,6 +76,7 @@ class FletMachineApp:
         self._active_tracks: list[TrackedCap] = []
         self._last_result = ClassificationResult(None, "AGUARDANDO", 0.0, 0, 0, False)
         self._last_latency_ms = 0.0
+        self._current_view_index = 0
 
         self.camera_image = ft.Image(
             src=self._placeholder_image(),
@@ -618,6 +619,7 @@ class FletMachineApp:
             ("ENGENHARIA  /  HARDWARE", "Configuracao da maquina"),
         ]
         self.view_context.value, self.view_title.value = titles[index]
+        self._current_view_index = index
         self.content_host.content = self.views[index]
         for position, button in enumerate(self.nav_buttons):
             button.bgcolor = "#0E6F61" if position == index else HEADER
@@ -1526,27 +1528,37 @@ class FletMachineApp:
             return
         import cv2
 
-        if not self.presence_detector.calibrated:
-            self._set_notice("Retire a peca e calibre o fundo antes da captura", error=True)
-            return
-        try:
-            presence = self.presence_detector.analyze(self._current_frame)
-            detections = self.pipeline.detector.detect(
+        detection = None
+        if self.presence_detector.calibrated:
+            try:
+                presence = self.presence_detector.analyze(self._current_frame)
+                detections = self.pipeline.detector.detect(
+                    self._current_frame,
+                    self.config.camera.roi,
+                    presence.mask,
+                )
+                registration_box = self._registration_box(self._current_frame)
+                candidates = [
+                    item
+                    for item in detections
+                    if self._point_in_box(
+                        item.centroid_x,
+                        item.centroid_y,
+                        registration_box,
+                    )
+                ]
+                detection = max(candidates, key=lambda item: item.area, default=None)
+            except (ValueError, RoiError):
+                detection = None
+
+        if detection is None:
+            x, y, width, height = self._registration_box(self._current_frame)
+            sample_frame = self._current_frame[y : y + height, x : x + width]
+        else:
+            sample_frame, _sample_mask = self.pipeline.crop_detection(
                 self._current_frame,
-                self.config.camera.roi,
-                presence.mask,
+                detection.bounding_box,
             )
-        except (ValueError, RoiError) as exc:
-            self._set_notice(str(exc), error=True)
-            return
-        if not detections:
-            self._set_notice("Nenhuma peca bem definida foi encontrada", error=True)
-            return
-        detection = max(detections, key=lambda item: item.area)
-        sample_frame, _sample_mask = self.pipeline.crop_detection(
-            self._current_frame,
-            detection.bounding_box,
-        )
         ok, encoded = cv2.imencode(".jpg", sample_frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
         if not ok:
             self._set_notice("Falha ao preparar a imagem", error=True)
@@ -1868,6 +1880,15 @@ class FletMachineApp:
         x1, y1, x2, y2 = roi.x, roi.y, roi.x2, roi.y2
         color = (91, 127, 8) if result.accepted else (91, 196, 49)
         cv2.rectangle(rendered, (x1, y1), (x2, y2), color, 3)
+        if self._current_view_index == 1:
+            guide_x, guide_y, guide_width, guide_height = self._registration_box(rendered)
+            cv2.rectangle(
+                rendered,
+                (guide_x, guide_y),
+                (guide_x + guide_width, guide_y + guide_height),
+                (0, 196, 255),
+                3,
+            )
         for cap in tracks or []:
             x, y, width, height = cap.bounding_box
             track_color = (30, 180, 70) if cap.class_id else (0, 170, 255)
@@ -1898,6 +1919,23 @@ class FletMachineApp:
                 cv2.LINE_AA,
             )
         return rendered
+
+    def _registration_box(self, frame: Any) -> tuple[int, int, int, int]:
+        roi = resolve_roi(frame, self.config.camera.roi)
+        width = max(1, int(roi.width * 0.60))
+        height = max(1, int(roi.height * 0.70))
+        x = roi.x + (roi.width - width) // 2
+        y = roi.y + (roi.height - height) // 2
+        return x, y, width, height
+
+    @staticmethod
+    def _point_in_box(
+        x: float,
+        y: float,
+        box: tuple[int, int, int, int],
+    ) -> bool:
+        box_x, box_y, width, height = box
+        return box_x <= x <= box_x + width and box_y <= y <= box_y + height
 
     @staticmethod
     def _encode_frame(frame: Any) -> bytes:
