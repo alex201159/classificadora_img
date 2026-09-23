@@ -888,6 +888,48 @@ class FletMachineApp:
     async def _scan_cameras_task(self) -> None:
         current_index = self.camera.device
 
+        try:
+            reconnected = await asyncio.to_thread(
+                self.camera.reconfigure,
+                current_index,
+                self.config.camera.width,
+                self.config.camera.height,
+                self.config.camera.fps,
+            )
+        except Exception as exc:
+            self._log.exception("Falha ao reconectar a camera atual")
+            self.scan_cameras_button.disabled = False
+            self.controller.status.camera_available = False
+            self._set_machine_settings_notice(f"Falha ao reconectar a camera: {exc}", error=True)
+            return
+        if not reconnected:
+            self.scan_cameras_button.disabled = False
+            self.controller.status.camera_available = False
+            self._set_machine_settings_notice(
+                "A camera atual foi desconectada e nao forneceu imagem",
+                error=True,
+            )
+            return
+
+        self.controller.status.camera_available = True
+        self._current_frame = None
+        self.pipeline = ProductionPipeline(
+            self.config,
+            self.controller,
+            self.classifier,
+            self._output_for_class,
+        )
+        self.presence_detector = self.pipeline.presence_detector
+        self._reset_stability()
+        self.result_name.value = "RECALIBRAR FUNDO"
+        self.result_name.color = AMBER
+        self.camera_badge.value = "CAMERA ATIVA"
+        self.camera_badge.color = GREEN
+        self.sidebar_camera_status.value = "CONECTADA"
+        self.sidebar_camera_status.color = "#5FE0C1"
+        self.footer_camera_status.value = "CAMERA: CONECTADA"
+        self.footer_camera_status.color = GREEN
+
         def detect() -> list[tuple[int, int | None, int | None]]:
             detector = CameraDetector()
             found = [(current_index, self.camera.width, self.camera.height)]
@@ -913,7 +955,8 @@ class FletMachineApp:
             ]
             count = len(cameras)
             self._set_machine_settings_notice(
-                f"{count} {'camera encontrada' if count == 1 else 'cameras encontradas'}"
+                f"Camera reconectada; {count} "
+                f"{'dispositivo encontrado' if count == 1 else 'dispositivos encontrados'}"
             )
         except Exception as exc:
             self._log.exception("Falha ao procurar cameras")

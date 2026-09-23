@@ -78,3 +78,28 @@ def test_camera_reconfigure_records_dimensions_actually_delivered(monkeypatch: A
 
     assert stream.reconfigure(1, 1920, 1080, 30) is True
     assert (stream.width, stream.height) == (640, 480)
+
+
+def test_camera_reconfigure_reopens_same_device_after_usb_swap(monkeypatch: Any) -> None:
+    opened: list[FakeCapture] = []
+
+    def video_capture(device: int) -> FakeCapture:
+        capture = FakeCapture(device, available=True)
+        opened.append(capture)
+        return capture
+
+    fake_cv2 = SimpleNamespace(
+        VideoCapture=video_capture,
+        CAP_PROP_FRAME_WIDTH=1,
+        CAP_PROP_FRAME_HEIGHT=2,
+        CAP_PROP_FPS=3,
+    )
+    monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
+    stream = CameraStream(1, 1280, 720, 30)
+    assert stream.open() is True
+    previous_capture = opened[-1]
+
+    assert stream.reconfigure(1, 1280, 720, 30) is True
+    assert previous_capture.released is True
+    assert len(opened) == 2
+    assert stream.opened is True
