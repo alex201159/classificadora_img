@@ -112,7 +112,7 @@ class ProductionPipeline:
             )
             self.metrics.detection_ms = (time.perf_counter() - detection_started) * 1000
             tracks = self.tracker.update(detections, observed_at)
-            self._inherit_previous_decisions(tracks, observed_at)
+            self._refresh_decision_memories(tracks, observed_at)
             self.metrics.detected_caps += len(self.tracker.new_ids)
 
             classification_total_ms = 0.0
@@ -202,6 +202,21 @@ class ProductionPipeline:
         cap.confidence = sum(vote.confidence for vote in votes) / len(votes)
         cap.color_similarity = sum(vote.color_similarity for vote in votes) / len(votes)
         cap.counted = True
+
+        previous_decision = self._matching_decision(cap)
+        if previous_decision is not None:
+            previous_decision.track_ids.add(cap.id)
+            previous_decision.centroid_x = cap.centroid_x
+            previous_decision.centroid_y = cap.centroid_y
+            previous_decision.bounding_box = cap.bounding_box
+            previous_decision.last_seen = cap.last_seen
+            cap.scheduled = True
+            self._log.debug(
+                "ID %s confirmado visualmente como continuacao da decisao anterior",
+                cap.id,
+            )
+            return
+
         self._decision_memories.append(
             _DecisionMemory(
                 track_ids={cap.id},
@@ -231,7 +246,7 @@ class ProductionPipeline:
             output_name,
         )
 
-    def _inherit_previous_decisions(
+    def _refresh_decision_memories(
         self,
         tracks: list[TrackedCap],
         observed_at: float,
@@ -241,29 +256,26 @@ class ProductionPipeline:
                 (
                     item
                     for item in self._decision_memories
-                    if cap.id in item.track_ids or self._same_physical_region(cap, item)
+                    if cap.id in item.track_ids
                 ),
                 None,
             )
             if memory is None:
                 continue
-            memory.track_ids.add(cap.id)
             memory.centroid_x = cap.centroid_x
             memory.centroid_y = cap.centroid_y
             memory.bounding_box = cap.bounding_box
             memory.last_seen = observed_at
-            if cap.counted:
-                continue
-            cap.class_id = memory.class_id
-            cap.class_name = memory.class_name
-            cap.confidence = memory.confidence
-            cap.color_similarity = memory.color_similarity
-            cap.counted = True
-            cap.scheduled = True
-            self._log.debug(
-                "Novo ID %s associado a decisao anterior sem nova contagem",
-                cap.id,
-            )
+
+    def _matching_decision(self, cap: TrackedCap) -> _DecisionMemory | None:
+        return next(
+            (
+                item
+                for item in self._decision_memories
+                if item.class_id == cap.class_id and self._same_physical_region(cap, item)
+            ),
+            None,
+        )
 
     def _same_physical_region(self, cap: TrackedCap, memory: _DecisionMemory) -> bool:
         if _boxes_overlap(cap.bounding_box, memory.bounding_box):

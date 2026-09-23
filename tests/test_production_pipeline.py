@@ -242,6 +242,32 @@ def test_pipeline_does_not_recount_piece_that_returns_with_new_id() -> None:
     controller.shutdown()
 
 
+def test_new_unknown_object_does_not_inherit_previous_class_from_same_region() -> None:
+    results = [_accepted(), _accepted(), _accepted(), _unknown()]
+    pipeline, controller, _presence, detector = _pipeline(results)
+    frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    for index in range(3):
+        pipeline.process(frame, now=float(index))
+    assert controller.status.counters_by_class == {"Azul": 1}
+
+    detector.detections = []
+    for index in range(3, 7):
+        pipeline.process(frame, now=float(index))
+    detector.detections = [Detection(105, 102, 900, (85, 82, 40, 40))]
+    for index in range(7, 10):
+        result = pipeline.process(frame, now=float(index))
+
+    wire = result.tracks[0]
+    assert wire.id == 2
+    assert wire.class_id is None
+    assert wire.class_name == "NAO RECONHECIDO"
+    assert wire.counted is False
+    assert wire.scheduled is False
+    assert controller.status.counters_by_class == {"Azul": 1}
+    assert controller.status.scheduled_ejections == 1
+    controller.shutdown()
+
+
 def test_stable_hits_one_still_requires_same_track_in_two_frames() -> None:
     pipeline, controller, _presence, _detector = _pipeline(
         [_accepted()],
