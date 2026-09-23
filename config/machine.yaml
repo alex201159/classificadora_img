@@ -4,15 +4,15 @@ machine:
   gpio_numbering: wpi
 camera:
   device: 0
-  width: 1280
-  height: 720
+  width: 640
+  height: 480
   fps: 30
   max_read_failures: 5
   roi:
     x: 0
     y: 0
-    width: 1280
-    height: 720
+    width: 640
+    height: 480
 conveyor:
   speed_mm_s: 300.0
   gpio: 19
