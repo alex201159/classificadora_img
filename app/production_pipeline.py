@@ -195,6 +195,14 @@ class ProductionPipeline:
     def _finalize_unrecognized(self, cap: TrackedCap) -> None:
         if cap.counted:
             return
+        minimum_hits = max(2, self.config.recognition.stable_hits)
+        if cap.hits < minimum_hits:
+            self._log.debug(
+                "Track transitorio ID %s ignorado com %s observacoes",
+                cap.id,
+                cap.hits,
+            )
+            return
         cap.counted = True
         self.controller.record_classification(None)
         self.metrics.unrecognized_caps += 1

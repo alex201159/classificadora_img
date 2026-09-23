@@ -122,11 +122,12 @@ def test_pipeline_uses_majority_vote_for_track() -> None:
 def test_pipeline_finalizes_unknown_track_through_reject_output() -> None:
     pipeline, controller, presence, detector = _pipeline([_unknown()])
     frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
-    pipeline.process(frame, now=0.0)
+    for index in range(3):
+        pipeline.process(frame, now=float(index))
     presence.present = False
     detector.detections = []
 
-    for index in range(1, 5):
+    for index in range(3, 7):
         result = pipeline.process(frame, now=float(index))
 
     assert result.removed_ids == [1]
@@ -135,6 +136,22 @@ def test_pipeline_finalizes_unknown_track_through_reject_output() -> None:
     assert controller.status.scheduled_ejections == 1
     assert controller.status.last_ejection_output == "reject"
     assert pipeline.metrics.rejected_caps == 1
+    controller.shutdown()
+
+
+def test_pipeline_ignores_single_frame_noise_without_rejection() -> None:
+    pipeline, controller, presence, detector = _pipeline([_unknown()])
+    frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    pipeline.process(frame, now=0.0)
+    presence.present = False
+    detector.detections = []
+
+    for index in range(1, 5):
+        pipeline.process(frame, now=float(index))
+
+    assert controller.status.total_caps == 0
+    assert controller.status.rejected_caps == 0
+    assert controller.status.scheduled_ejections == 0
     controller.shutdown()
 
 

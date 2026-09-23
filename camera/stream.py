@@ -27,6 +27,12 @@ class CameraStream:
             if not capture.isOpened():
                 capture.release()
                 return False
+            self.width, self.height = self._actual_dimensions(
+                cv2,
+                capture,
+                self.width,
+                self.height,
+            )
             self._capture = capture
             return True
 
@@ -48,8 +54,13 @@ class CameraStream:
                         break
             if received_frame:
                 self.device = device
-                self.width = width
-                self.height = height
+                self.width, self.height = self._actual_dimensions(
+                    cv2,
+                    capture,
+                    width,
+                    height,
+                    _frame,
+                )
                 self.fps = fps
                 self._capture = capture
                 return True
@@ -82,3 +93,24 @@ class CameraStream:
         capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         capture.set(cv2.CAP_PROP_FPS, fps)
         return capture
+
+    @staticmethod
+    def _actual_dimensions(
+        cv2: Any,
+        capture: Any,
+        requested_width: int,
+        requested_height: int,
+        frame: Any | None = None,
+    ) -> tuple[int, int]:
+        if frame is not None and hasattr(frame, "shape") and len(frame.shape) >= 2:
+            height, width = frame.shape[:2]
+            if width > 0 and height > 0:
+                return int(width), int(height)
+
+        get_property = getattr(capture, "get", None)
+        if callable(get_property):
+            width = int(get_property(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+            height = int(get_property(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+            if width > 0 and height > 0:
+                return width, height
+        return requested_width, requested_height

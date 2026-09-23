@@ -981,6 +981,8 @@ class FletMachineApp:
                 opened = await asyncio.to_thread(self.camera.reconfigure, *requested_camera)
                 if not opened:
                     raise SettingsError("A camera selecionada nao forneceu imagem")
+                values["camera_width"] = self.camera.width
+                values["camera_height"] = self.camera.height
 
             try:
                 updated = await asyncio.to_thread(
@@ -1030,6 +1032,18 @@ class FletMachineApp:
                 )
             ]
             self.camera_device_field.value = str(updated.camera.device)
+            actual_resolution = f"{updated.camera.width}x{updated.camera.height}"
+            available_resolutions = [
+                option.key for option in self.camera_resolution_field.options
+            ]
+            if actual_resolution not in available_resolutions:
+                self.camera_resolution_field.options.append(
+                    ft.DropdownOption(
+                        key=actual_resolution,
+                        text=actual_resolution.replace("x", " x "),
+                    )
+                )
+            self.camera_resolution_field.value = actual_resolution
             self.sidebar_camera_status.value = "CONECTADA"
             self.sidebar_camera_status.color = "#5FE0C1"
             self.footer_camera_status.value = f"CAMERA {updated.camera.device}: CONECTADA"
