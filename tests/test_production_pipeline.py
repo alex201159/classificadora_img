@@ -209,6 +209,39 @@ def test_pipeline_tracks_and_decides_two_caps_independently() -> None:
     controller.shutdown()
 
 
+def test_pipeline_does_not_recount_piece_that_returns_with_new_id() -> None:
+    pipeline, controller, presence, detector = _pipeline([_accepted()])
+    frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    for index in range(3):
+        pipeline.process(frame, now=float(index))
+    assert controller.status.total_caps == 1
+
+    detector.detections = []
+    for index in range(3, 7):
+        pipeline.process(frame, now=float(index))
+    detector.detections = [Detection(105, 102, 900, (85, 82, 40, 40))]
+    for index in range(7, 10):
+        result = pipeline.process(frame, now=float(index))
+
+    assert result.tracks[0].id == 2
+    assert result.tracks[0].counted is True
+    assert controller.status.total_caps == 1
+    assert controller.status.scheduled_ejections == 1
+
+    presence.present = False
+    detector.detections = []
+    for index in range(10, 14):
+        pipeline.process(frame, now=float(index))
+    presence.present = True
+    detector.detections = [Detection(105, 102, 900, (85, 82, 40, 40))]
+    for index in range(14, 17):
+        pipeline.process(frame, now=float(index))
+
+    assert controller.status.total_caps == 2
+    assert controller.status.scheduled_ejections == 2
+    controller.shutdown()
+
+
 def test_stable_hits_one_still_requires_same_track_in_two_frames() -> None:
     pipeline, controller, _presence, _detector = _pipeline(
         [_accepted()],

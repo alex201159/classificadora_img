@@ -81,6 +81,8 @@ class RecognitionConfig:
     min_detection_area_px: float
     reject_unrecognized: bool
     color_weight: float
+    color_candidate_margin: float
+    max_color_references_per_class: int
 
 
 @dataclass(frozen=True)
@@ -211,6 +213,14 @@ def load_config(path: str | Path) -> MachineConfig:
             color_weight=_ratio(
                 recognition.get("color_weight", 0.55),
                 "recognition.color_weight",
+            ),
+            color_candidate_margin=_ratio(
+                recognition.get("color_candidate_margin", 0.12),
+                "recognition.color_candidate_margin",
+            ),
+            max_color_references_per_class=_positive_int(
+                recognition.get("max_color_references_per_class", 2),
+                "recognition.max_color_references_per_class",
             ),
         ),
     )

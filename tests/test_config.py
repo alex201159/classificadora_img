@@ -20,6 +20,8 @@ def test_load_default_config() -> None:
     assert config.recognition.stable_hits == 3
     assert config.recognition.reject_unrecognized is False
     assert config.recognition.color_weight == pytest.approx(0.55)
+    assert config.recognition.color_candidate_margin == pytest.approx(0.12)
+    assert config.recognition.max_color_references_per_class == 2
     assert config.recognition.max_tracking_distance_px == 60
     assert config.recognition.max_missed_frames == 3
     assert config.recognition.crop_margin_px == 15
@@ -64,6 +66,13 @@ outputs:
         ("recognition", "max_missed_frames", -1, "max_missed_frames"),
         ("recognition", "max_tracking_distance_px", 0, "max_tracking_distance_px"),
         ("recognition", "color_weight", 0, "color_weight"),
+        ("recognition", "color_candidate_margin", 0, "color_candidate_margin"),
+        (
+            "recognition",
+            "max_color_references_per_class",
+            0,
+            "max_color_references_per_class",
+        ),
         ("outputs.red_round", "pulse_ms", 0, "pulse_ms"),
         ("conveyor", "speed_mm_s", 0, "speed_mm_s"),
     ],

@@ -33,6 +33,19 @@ class PipelineResult:
     last_classification: ClassificationResult
 
 
+@dataclass
+class _DecisionMemory:
+    track_ids: set[int]
+    centroid_x: float
+    centroid_y: float
+    bounding_box: tuple[int, int, int, int]
+    class_id: str
+    class_name: str
+    confidence: float
+    color_similarity: float
+    last_seen: float
+
+
 class ProductionPipeline:
     """Runs vision and makes each production decision exactly once per track."""
 
@@ -74,6 +87,7 @@ class ProductionPipeline:
             else PipelineMetrics()
         )
         self._log = logging.getLogger(__name__)
+        self._decision_memories: list[_DecisionMemory] = []
 
     def calibrate(self, frame: Any) -> None:
         self.presence_detector.calibrate(frame)
@@ -88,6 +102,8 @@ class ProductionPipeline:
         last_result = self._unknown("SEM OBJETO")
         try:
             presence = self.presence_detector.analyze(frame)
+            if not presence.present:
+                self._decision_memories.clear()
             detection_started = time.perf_counter()
             detections = (
                 self.detector.detect(frame, self.config.camera.roi, presence.mask)
@@ -96,6 +112,7 @@ class ProductionPipeline:
             )
             self.metrics.detection_ms = (time.perf_counter() - detection_started) * 1000
             tracks = self.tracker.update(detections, observed_at)
+            self._inherit_previous_decisions(tracks, observed_at)
             self.metrics.detected_caps += len(self.tracker.new_ids)
 
             classification_total_ms = 0.0
@@ -144,6 +161,7 @@ class ProductionPipeline:
 
     def reset(self) -> None:
         self.tracker.reset()
+        self._decision_memories.clear()
 
     def _record_vote(self, cap: TrackedCap, result: ClassificationResult) -> None:
         cap.classification_attempts += 1
@@ -184,6 +202,19 @@ class ProductionPipeline:
         cap.confidence = sum(vote.confidence for vote in votes) / len(votes)
         cap.color_similarity = sum(vote.color_similarity for vote in votes) / len(votes)
         cap.counted = True
+        self._decision_memories.append(
+            _DecisionMemory(
+                track_ids={cap.id},
+                centroid_x=cap.centroid_x,
+                centroid_y=cap.centroid_y,
+                bounding_box=cap.bounding_box,
+                class_id=cap.class_id,
+                class_name=cap.class_name,
+                confidence=cap.confidence,
+                color_similarity=cap.color_similarity,
+                last_seen=cap.last_seen,
+            )
+        )
         self.controller.record_classification(cap.class_name)
         self.metrics.recognized_caps += 1
 
@@ -199,6 +230,49 @@ class ProductionPipeline:
             cap.class_name,
             output_name,
         )
+
+    def _inherit_previous_decisions(
+        self,
+        tracks: list[TrackedCap],
+        observed_at: float,
+    ) -> None:
+        for cap in tracks:
+            memory = next(
+                (
+                    item
+                    for item in self._decision_memories
+                    if cap.id in item.track_ids or self._same_physical_region(cap, item)
+                ),
+                None,
+            )
+            if memory is None:
+                continue
+            memory.track_ids.add(cap.id)
+            memory.centroid_x = cap.centroid_x
+            memory.centroid_y = cap.centroid_y
+            memory.bounding_box = cap.bounding_box
+            memory.last_seen = observed_at
+            if cap.counted:
+                continue
+            cap.class_id = memory.class_id
+            cap.class_name = memory.class_name
+            cap.confidence = memory.confidence
+            cap.color_similarity = memory.color_similarity
+            cap.counted = True
+            cap.scheduled = True
+            self._log.debug(
+                "Novo ID %s associado a decisao anterior sem nova contagem",
+                cap.id,
+            )
+
+    def _same_physical_region(self, cap: TrackedCap, memory: _DecisionMemory) -> bool:
+        if _boxes_overlap(cap.bounding_box, memory.bounding_box):
+            return True
+        distance = (
+            (cap.centroid_x - memory.centroid_x) ** 2
+            + (cap.centroid_y - memory.centroid_y) ** 2
+        ) ** 0.5
+        return distance <= self.config.recognition.max_tracking_distance_px
 
     def _finalize_unrecognized(self, cap: TrackedCap) -> None:
         if cap.counted:
@@ -264,3 +338,17 @@ class ProductionPipeline:
     @staticmethod
     def _unknown(name: str = "NAO RECONHECIDO") -> ClassificationResult:
         return ClassificationResult(None, name, 0.0, 0, 0, False)
+
+
+def _boxes_overlap(
+    first: tuple[int, int, int, int],
+    second: tuple[int, int, int, int],
+) -> bool:
+    first_x, first_y, first_width, first_height = first
+    second_x, second_y, second_width, second_height = second
+    return (
+        first_x < second_x + second_width
+        and first_x + first_width > second_x
+        and first_y < second_y + second_height
+        and first_y + first_height > second_y
+    )

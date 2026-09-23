@@ -71,6 +71,12 @@ tracking, tolerancia a frames perdidos e margem do crop tambem ficam na secao
 `recognition` de `config/machine.yaml`. A tela mostra IDs, FPS, latencia e a
 similaridade de cor da classificacao.
 
+Antes do SIFT, a cor seleciona apenas as referencias mais proximas por classe;
+`color_candidate_margin` controla a tolerancia dessa selecao e
+`max_color_references_per_class` limita o trabalho por classe. Decisoes recentes
+tambem sao mantidas enquanto a area de inspecao estiver ocupada, impedindo que
+uma oscilacao do detector conte ou agende novamente a mesma peca.
+
 Na aba **Ajustes**, cada expulsor pode receber um GPIO wPi, o atraso entre o
 reconhecimento e o disparo e a duracao do pulso. A mesma tela permite adicionar
 ou excluir saidas. As alteracoes exigem que a maquina esteja parada e sao

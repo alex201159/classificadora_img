@@ -60,3 +60,5 @@ recognition:
   min_detection_area_px: 150
   reject_unrecognized: false
   color_weight: 0.55
+  color_candidate_margin: 0.12
+  max_color_references_per_class: 2

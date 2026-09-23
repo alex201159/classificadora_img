@@ -59,6 +59,8 @@ class FletMachineApp:
             sift_features=recognition.sift_features,
             flann_checks=recognition.flann_checks,
             color_weight=recognition.color_weight,
+            color_candidate_margin=recognition.color_candidate_margin,
+            max_color_references_per_class=recognition.max_color_references_per_class,
         )
         self.pipeline = ProductionPipeline(
             config,

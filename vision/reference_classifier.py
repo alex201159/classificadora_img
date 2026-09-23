@@ -44,6 +44,8 @@ class ReferenceImageClassifier:
         sift_features: int = 900,
         flann_checks: int = 16,
         color_weight: float = 0.55,
+        color_candidate_margin: float = 0.12,
+        max_color_references_per_class: int = 2,
     ) -> None:
         self.catalog = catalog
         self.ratio_threshold = ratio_threshold
@@ -56,6 +58,12 @@ class ReferenceImageClassifier:
         if not 0 < color_weight < 1:
             raise ValueError("color_weight deve estar entre zero e um")
         self.color_weight = color_weight
+        if not 0 < color_candidate_margin < 1:
+            raise ValueError("color_candidate_margin deve estar entre zero e um")
+        if max_color_references_per_class < 1:
+            raise ValueError("max_color_references_per_class deve ser maior que zero")
+        self.color_candidate_margin = color_candidate_margin
+        self.max_color_references_per_class = max_color_references_per_class
         self._references: list[_Reference] = []
         self._log = logging.getLogger(__name__)
         self._cv2 = self._import_cv2()
@@ -107,16 +115,44 @@ class ReferenceImageClassifier:
         if query_descriptors is None or len(query_keypoints) < 40:
             return self._unknown()
 
+        color_scores = [
+            self._histogram_similarity(query_color, reference.color_histogram)
+            for reference in self._references
+        ]
+        best_color_by_class: dict[str, float] = {}
+        for reference, color_similarity in zip(self._references, color_scores, strict=True):
+            best_color_by_class[reference.class_id] = max(
+                best_color_by_class.get(reference.class_id, 0.0),
+                color_similarity,
+            )
+        best_color = max(best_color_by_class.values(), default=0.0)
+        candidate_classes = {
+            class_id
+            for class_id, score in best_color_by_class.items()
+            if score >= best_color - self.color_candidate_margin
+        }
+        candidate_indexes: list[int] = []
+        for class_id in candidate_classes:
+            indexes = [
+                index
+                for index, reference in enumerate(self._references)
+                if reference.class_id == class_id
+            ]
+            indexes.sort(key=lambda index: color_scores[index], reverse=True)
+            candidate_indexes.extend(indexes[: self.max_color_references_per_class])
+
         best_by_class: dict[str, tuple[str, int, int, float, float]] = {}
-        scores = self._score_references(query_keypoints, query_descriptors)
-        for reference, (good_matches, inliers) in zip(self._references, scores, strict=True):
+        scores = self._score_references(
+            query_keypoints,
+            query_descriptors,
+            candidate_indexes,
+        )
+        for reference_index, (good_matches, inliers) in scores.items():
+            reference = self._references[reference_index]
             geometric_quality = min(1.0, inliers / max(self.min_inliers * 3, 1))
             match_quality = min(1.0, good_matches / max(self.min_good_matches * 3, 1))
             visual_score = geometric_quality * 0.75 + match_quality * 0.25
-            color_similarity = self._histogram_similarity(
-                query_color,
-                reference.color_histogram,
-            )
+            color_similarity = color_scores[reference_index]
             score = (
                 visual_score * (1.0 - self.color_weight)
                 + color_similarity * self.color_weight
@@ -170,13 +206,15 @@ class ReferenceImageClassifier:
         self,
         query_keypoints: Any,
         query_descriptors: Any,
-    ) -> list[tuple[int, int]]:
-        scores: list[tuple[int, int]] = []
-        for reference in self._references:
+        reference_indexes: list[int],
+    ) -> dict[int, tuple[int, int]]:
+        scores: dict[int, tuple[int, int]] = {}
+        for reference_index in reference_indexes:
+            reference = self._references[reference_index]
             try:
                 pairs = reference.matcher.knnMatch(query_descriptors, k=2)
             except self._cv2.error:
-                scores.append((0, 0))
+                scores[reference_index] = (0, 0)
                 continue
             good = []
             for pair in pairs:
@@ -185,7 +223,11 @@ class ReferenceImageClassifier:
                 match, neighbor = pair
                 if match.distance < self.ratio_threshold * neighbor.distance:
                     good.append(match)
-            scores.append(self._geometric_score(query_keypoints, reference, good))
+            scores[reference_index] = self._geometric_score(
+                query_keypoints,
+                reference,
+                good,
+            )
         return scores
 
     def _geometric_score(
