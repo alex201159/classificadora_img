@@ -58,3 +58,4 @@ recognition:
   max_missed_frames: 3
   crop_margin_px: 15
   min_detection_area_px: 150
+  reject_unrecognized: false

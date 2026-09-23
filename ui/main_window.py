@@ -8,5 +8,5 @@ class TextStatusView:
         safe = "SEGURO" if status.safe_state else "PRODUCAO"
         return (
             f"{status.state.value} | {safe} | "
-            f"total={status.total_caps} | rejeitadas={status.rejected_caps}"
+            f"total reconhecido={status.total_caps}"
         )

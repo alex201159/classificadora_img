@@ -19,7 +19,6 @@ const elements = {
   safetyState: document.querySelector("#safety-state"),
   currentClass: document.querySelector("#current-class"),
   totalCount: document.querySelector("#total-count"),
-  rejectCount: document.querySelector("#reject-count"),
   startMachine: document.querySelector("#start-machine"),
   stopMachine: document.querySelector("#stop-machine"),
   operationVideo: document.querySelector("#operation-video"),
@@ -100,7 +99,6 @@ async function refreshStatus() {
     elements.safetyState.textContent = status.safe_state ? "SEGURA" : "PRODUÇÃO";
     elements.safetyState.classList.toggle("safe", status.safe_state);
     elements.totalCount.textContent = status.total_caps;
-    elements.rejectCount.textContent = status.rejected_caps;
     elements.startMachine.disabled = status.running;
     elements.stopMachine.disabled = !status.running;
   } catch (error) {

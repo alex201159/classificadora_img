@@ -47,3 +47,23 @@ def test_tracker_recovers_id_after_missing_frame_and_removes_after_limit() -> No
     tracker.update([])
     assert tracker.update([]) == []
     assert tracker.removed_ids == [original.id]
+
+
+def test_tracker_keeps_id_for_fast_motion_when_boxes_still_overlap() -> None:
+    tracker = CentroidTracker(max_distance_px=60)
+    original = tracker.update([Detection(100, 100, 10_000, (50, 50, 100, 100))])[0]
+
+    moved = tracker.update([Detection(180, 100, 10_000, (130, 50, 100, 100))])[0]
+
+    assert moved.id == original.id
+
+
+def test_tracker_uses_motion_prediction_after_missing_frame() -> None:
+    tracker = CentroidTracker(max_distance_px=50, max_missed_frames=2)
+    original = tracker.update([Detection(100, 100, 2_500, (75, 75, 50, 50))])[0]
+    tracker.update([Detection(145, 100, 2_500, (120, 75, 50, 50))])
+    tracker.update([])
+
+    recovered = tracker.update([Detection(235, 100, 2_500, (210, 75, 50, 50))])
+
+    assert recovered[0].id == original.id

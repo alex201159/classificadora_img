@@ -57,6 +57,7 @@ def _pipeline(
     results: list[ClassificationResult],
     *,
     stable_hits: int | None = None,
+    reject_unrecognized: bool | None = None,
 ) -> tuple[
     ProductionPipeline,
     MachineController,
@@ -64,10 +65,22 @@ def _pipeline(
     FakeDetector,
 ]:
     config = load_config(Path("config/machine.yaml"))
-    if stable_hits is not None:
+    if stable_hits is not None or reject_unrecognized is not None:
         config = replace(
             config,
-            recognition=replace(config.recognition, stable_hits=stable_hits),
+            recognition=replace(
+                config.recognition,
+                stable_hits=(
+                    stable_hits
+                    if stable_hits is not None
+                    else config.recognition.stable_hits
+                ),
+                reject_unrecognized=(
+                    reject_unrecognized
+                    if reject_unrecognized is not None
+                    else config.recognition.reject_unrecognized
+                ),
+            ),
         )
     controller = MachineController(config)
     controller.initialize()
@@ -120,7 +133,10 @@ def test_pipeline_uses_majority_vote_for_track() -> None:
 
 
 def test_pipeline_finalizes_unknown_track_through_reject_output() -> None:
-    pipeline, controller, presence, detector = _pipeline([_unknown()])
+    pipeline, controller, presence, detector = _pipeline(
+        [_unknown()],
+        reject_unrecognized=True,
+    )
     frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
     for index in range(3):
         pipeline.process(frame, now=float(index))
@@ -152,6 +168,27 @@ def test_pipeline_ignores_single_frame_noise_without_rejection() -> None:
     assert controller.status.total_caps == 0
     assert controller.status.rejected_caps == 0
     assert controller.status.scheduled_ejections == 0
+    controller.shutdown()
+
+
+def test_pipeline_does_not_count_or_schedule_unknown_when_rejection_is_disabled() -> None:
+    pipeline, controller, presence, detector = _pipeline(
+        [_unknown()],
+        reject_unrecognized=False,
+    )
+    frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    for index in range(3):
+        pipeline.process(frame, now=float(index))
+    presence.present = False
+    detector.detections = []
+
+    for index in range(3, 7):
+        pipeline.process(frame, now=float(index))
+
+    assert controller.status.total_caps == 0
+    assert controller.status.rejected_caps == 0
+    assert controller.status.scheduled_ejections == 0
+    assert pipeline.metrics.unrecognized_caps == 1
     controller.shutdown()
 
 

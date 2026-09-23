@@ -57,7 +57,12 @@ class ProductionPipeline:
             min_foreground_ratio=recognition.min_foreground_ratio,
             roi=config.camera.roi,
         )
-        self.detector = detector or CapDetector(recognition.min_detection_area_px)
+        roi_area = config.camera.roi.width * config.camera.roi.height
+        effective_min_area = max(
+            recognition.min_detection_area_px,
+            roi_area * recognition.min_foreground_ratio,
+        )
+        self.detector = detector or CapDetector(effective_min_area)
         self.tracker = tracker or CentroidTracker(
             max_distance_px=recognition.max_tracking_distance_px,
             max_missed_frames=recognition.max_missed_frames,
@@ -97,7 +102,7 @@ class ProductionPipeline:
             for cap in tracks:
                 if cap.missed_frames or cap.counted:
                     continue
-                crop, crop_mask = self._crop(frame, presence.mask, cap.bounding_box)
+                crop, crop_mask = self.crop_detection(frame, cap.bounding_box)
                 classification_started = time.perf_counter()
                 result = self.classifier.classify(crop, crop_mask)
                 classification_total_ms += (time.perf_counter() - classification_started) * 1000
@@ -204,8 +209,11 @@ class ProductionPipeline:
             )
             return
         cap.counted = True
-        self.controller.record_classification(None)
         self.metrics.unrecognized_caps += 1
+        if not self.config.recognition.reject_unrecognized:
+            self._log.debug("Tampa ID %s finalizada sem classificacao", cap.id)
+            return
+        self.controller.record_classification(None)
         self.metrics.rejected_caps += 1
         if "reject" in self.config.outputs and not cap.scheduled:
             cap.scheduled = True
@@ -213,10 +221,9 @@ class ProductionPipeline:
             self.metrics.scheduled_ejections += 1
         self._log.info("Tampa ID %s finalizada sem reconhecimento", cap.id)
 
-    def _crop(
+    def crop_detection(
         self,
         frame: Any,
-        mask: Any,
         bounding_box: tuple[int, int, int, int],
     ) -> tuple[Any, Any]:
         roi = resolve_roi(frame, self.config.camera.roi)
@@ -228,7 +235,28 @@ class ProductionPipeline:
         y2 = min(roi.y2, y + height + margin)
         if x2 <= x1 or y2 <= y1:
             raise ValueError("bounding box invalida para recorte da tampa")
-        return frame[y1:y2, x1:x2], mask[y1:y2, x1:x2]
+        crop = frame[y1:y2, x1:x2]
+        object_mask = self._bounding_box_mask(crop, x - x1, y - y1, width, height)
+        return crop, object_mask
+
+    @staticmethod
+    def _bounding_box_mask(
+        crop: Any,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+    ) -> Any:
+        import numpy as np
+
+        crop_height, crop_width = crop.shape[:2]
+        x1 = max(0, x)
+        y1 = max(0, y)
+        x2 = min(crop_width, x + width)
+        y2 = min(crop_height, y + height)
+        object_mask = np.zeros((crop_height, crop_width), dtype=np.uint8)
+        object_mask[y1:y2, x1:x2] = 255
+        return object_mask
 
     @staticmethod
     def _unknown(name: str = "NAO RECONHECIDO") -> ClassificationResult:

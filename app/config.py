@@ -79,6 +79,7 @@ class RecognitionConfig:
     max_missed_frames: int
     crop_margin_px: int
     min_detection_area_px: float
+    reject_unrecognized: bool
 
 
 @dataclass(frozen=True)
@@ -205,6 +206,7 @@ def load_config(path: str | Path) -> MachineConfig:
                 recognition.get("min_detection_area_px", 150),
                 "recognition.min_detection_area_px",
             ),
+            reject_unrecognized=bool(recognition.get("reject_unrecognized", True)),
         ),
     )
     _validate_config(parsed)

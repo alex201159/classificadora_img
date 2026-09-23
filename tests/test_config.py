@@ -18,6 +18,7 @@ def test_load_default_config() -> None:
     assert config.outputs["red_round"].gpio == 20
     assert config.outputs["red_round"].delay_ms == 1500
     assert config.recognition.stable_hits == 3
+    assert config.recognition.reject_unrecognized is False
     assert config.recognition.max_tracking_distance_px == 60
     assert config.recognition.max_missed_frames == 3
     assert config.recognition.crop_margin_px == 15

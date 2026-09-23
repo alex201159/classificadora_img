@@ -105,7 +105,6 @@ class FletMachineApp:
         self.result_detail = ft.Text("0% DE CONFIANCA", color=MUTED, size=11, weight=ft.FontWeight.BOLD)
         self.confidence_bar = ft.ProgressBar(value=0, color=GREEN, bgcolor="#E4E7EC", bar_height=7)
         self.total_count = ft.Text("0", size=34, weight=ft.FontWeight.BOLD, color=INK)
-        self.reject_count = ft.Text("0", size=34, weight=ft.FontWeight.BOLD, color=INK)
         self.class_counters = ft.Column(spacing=6, scroll=ft.ScrollMode.AUTO, expand=True)
         self.conveyor_state = ft.Text("ESTEIRA PARADA", color=MUTED, weight=ft.FontWeight.BOLD, size=11)
         self.ejection_state = ft.Text("0 JATOS", color=MUTED, weight=ft.FontWeight.BOLD, size=11)
@@ -687,13 +686,7 @@ class FletMachineApp:
                         border_radius=4,
                         expand=True,
                     ),
-                    ft.Row(
-                        [
-                            self._metric("TOTAL", self.total_count, GREEN_SOFT, GREEN),
-                            self._metric("REJEITADAS", self.reject_count, RED_SOFT, RED),
-                        ],
-                        spacing=8,
-                    ),
+                    self._metric("TOTAL RECONHECIDO", self.total_count, GREEN_SOFT, GREEN),
                     self.calibrate_button,
                     ft.Row([self.start_button, self.stop_button], spacing=8),
                     self.notice,
@@ -724,14 +717,29 @@ class FletMachineApp:
                     ),
                     self.class_selector,
                     ft.Row([self.rename_field, self.rename_button], spacing=8),
-                    ft.Button(
-                        "CAPTURAR AMOSTRA",
-                        icon=ft.Icons.CAMERA_ALT,
-                        bgcolor=GREEN,
-                        color=SURFACE,
-                        height=48,
-                        on_click=self._capture_sample,
-                        style=self._button_style(),
+                    ft.Row(
+                        [
+                            ft.Button(
+                                "CALIBRAR FUNDO",
+                                icon=ft.Icons.CENTER_FOCUS_STRONG,
+                                bgcolor="#344054",
+                                color=SURFACE,
+                                height=48,
+                                on_click=self._calibrate_background,
+                                style=self._button_style(),
+                            ),
+                            ft.Button(
+                                "CAPTURAR AMOSTRA",
+                                icon=ft.Icons.CAMERA_ALT,
+                                bgcolor=GREEN,
+                                color=SURFACE,
+                                height=48,
+                                expand=True,
+                                on_click=self._capture_sample,
+                                style=self._button_style(),
+                            ),
+                        ],
+                        spacing=8,
                     ),
                 ],
                 expand=True,
@@ -1518,7 +1526,28 @@ class FletMachineApp:
             return
         import cv2
 
-        ok, encoded = cv2.imencode(".jpg", self._current_frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
+        if not self.presence_detector.calibrated:
+            self._set_notice("Retire a peca e calibre o fundo antes da captura", error=True)
+            return
+        try:
+            presence = self.presence_detector.analyze(self._current_frame)
+            detections = self.pipeline.detector.detect(
+                self._current_frame,
+                self.config.camera.roi,
+                presence.mask,
+            )
+        except (ValueError, RoiError) as exc:
+            self._set_notice(str(exc), error=True)
+            return
+        if not detections:
+            self._set_notice("Nenhuma peca bem definida foi encontrada", error=True)
+            return
+        detection = max(detections, key=lambda item: item.area)
+        sample_frame, _sample_mask = self.pipeline.crop_detection(
+            self._current_frame,
+            detection.bounding_box,
+        )
+        ok, encoded = cv2.imencode(".jpg", sample_frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
         if not ok:
             self._set_notice("Falha ao preparar a imagem", error=True)
             return
@@ -1747,7 +1776,6 @@ class FletMachineApp:
 
     def _refresh_counts(self) -> None:
         self.total_count.value = str(self.controller.status.total_caps)
-        self.reject_count.value = str(self.controller.status.rejected_caps)
         classes = self.catalog.list_classes()
         self.class_counters.controls = []
         for cap_class in classes:

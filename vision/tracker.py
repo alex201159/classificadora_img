@@ -35,6 +35,8 @@ class TrackedCap:
     scheduled: bool = False
     finalized: bool = False
     last_seen: float = 0.0
+    velocity_x: float = 0.0
+    velocity_y: float = 0.0
 
 
 class CentroidTracker:
@@ -77,18 +79,31 @@ class CentroidTracker:
         candidates: list[tuple[float, int, int]] = []
         for cap_id, cap in self._tracked.items():
             for detection_index, detection in enumerate(detections):
-                distance = math.hypot(
-                    cap.centroid_x - detection.centroid_x,
-                    cap.centroid_y - detection.centroid_y,
+                prediction_steps = cap.missed_frames + 1
+                predicted_x = cap.centroid_x + cap.velocity_x * prediction_steps
+                predicted_y = cap.centroid_y + cap.velocity_y * prediction_steps
+                predicted_distance = math.hypot(
+                    predicted_x - detection.centroid_x,
+                    predicted_y - detection.centroid_y,
                 )
-                if distance <= self.max_distance_px:
-                    candidates.append((distance, cap_id, detection_index))
+                overlaps = _intersection_area(cap.bounding_box, detection.bounding_box) > 0
+                allowed_distance = self.max_distance_px * prediction_steps
+                if predicted_distance <= allowed_distance or overlaps:
+                    candidates.append((predicted_distance, cap_id, detection_index))
 
         for _distance, cap_id, detection_index in sorted(candidates):
             if cap_id in matched_ids or detection_index in matched_detections:
                 continue
             cap = self._tracked[cap_id]
             detection = detections[detection_index]
+            observed_velocity_x = detection.centroid_x - cap.centroid_x
+            observed_velocity_y = detection.centroid_y - cap.centroid_y
+            if cap.hits == 1:
+                cap.velocity_x = observed_velocity_x
+                cap.velocity_y = observed_velocity_y
+            else:
+                cap.velocity_x = cap.velocity_x * 0.5 + observed_velocity_x * 0.5
+                cap.velocity_y = cap.velocity_y * 0.5 + observed_velocity_y * 0.5
             cap.centroid_x = detection.centroid_x
             cap.centroid_y = detection.centroid_y
             cap.bounding_box = detection.bounding_box
@@ -128,3 +143,20 @@ class CentroidTracker:
         self._tracked.clear()
         self._removed = []
         self._new_ids = []
+
+
+def _intersection_area(
+    first: tuple[int, int, int, int],
+    second: tuple[int, int, int, int],
+) -> int:
+    first_x, first_y, first_width, first_height = first
+    second_x, second_y, second_width, second_height = second
+    overlap_width = max(
+        0,
+        min(first_x + first_width, second_x + second_width) - max(first_x, second_x),
+    )
+    overlap_height = max(
+        0,
+        min(first_y + first_height, second_y + second_height) - max(first_y, second_y),
+    )
+    return overlap_width * overlap_height

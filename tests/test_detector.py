@@ -32,3 +32,18 @@ def test_detector_otsu_does_not_select_uniform_bright_background() -> None:
 
     assert len(detections) == 1
     assert detections[0].area < frame.shape[0] * frame.shape[1] / 2
+
+
+def test_detector_ignores_small_foreground_fragments() -> None:
+    frame = np.full((720, 1280, 3), 220, dtype=np.uint8)
+    mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+    cv2.rectangle(mask, (100, 100), (120, 120), 255, -1)
+    cv2.rectangle(mask, (400, 250), (650, 450), 255, -1)
+
+    detections = CapDetector(min_area=frame.shape[0] * frame.shape[1] * 0.025).detect(
+        frame,
+        foreground_mask=mask,
+    )
+
+    assert len(detections) == 1
+    assert detections[0].centroid_x > 400
