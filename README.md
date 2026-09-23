@@ -14,6 +14,11 @@ Base inicial em Python para o separador automatico descrito em
 
 ## Uso
 
+Para instalar no Orange Pi 4 Pro com Armbian/Debian 13 e Cinnamon, siga o guia
+[docs/INSTALACAO_ORANGE_PI.md](docs/INSTALACAO_ORANGE_PI.md). O repositorio
+inclui scripts para instalar dependencias, diagnosticar camera, abrir a
+interface em Xorg e habilitar a inicializacao automatica apos o login.
+
 Instale as dependencias:
 
 ```bash

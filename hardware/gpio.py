@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import logging
 from typing import Protocol
 
@@ -31,6 +33,47 @@ class SimulatedGPIO:
         self._log.debug("GPIO simulado encerrado")
 
 
+class _CtypesWiringPi:
+    """Small adapter for the wiringOP shared library installed on the board."""
+
+    def __init__(self, library: object | None = None) -> None:
+        self._library = library or self._load_library()
+        self._setup = self._library.wiringPiSetup
+        self._setup.argtypes = []
+        self._setup.restype = ctypes.c_int
+        self._pin_mode = self._library.pinMode
+        self._pin_mode.argtypes = [ctypes.c_int, ctypes.c_int]
+        self._pin_mode.restype = None
+        self._digital_write = self._library.digitalWrite
+        self._digital_write.argtypes = [ctypes.c_int, ctypes.c_int]
+        self._digital_write.restype = None
+
+    @staticmethod
+    def _load_library() -> object:
+        candidates = [
+            ctypes.util.find_library("wiringPi"),
+            "libwiringPi.so",
+            "/usr/local/lib/libwiringPi.so",
+        ]
+        errors: list[str] = []
+        for candidate in dict.fromkeys(item for item in candidates if item):
+            try:
+                return ctypes.CDLL(candidate, use_errno=True)
+            except OSError as exc:
+                errors.append(str(exc))
+        detail = f" ({'; '.join(errors)})" if errors else ""
+        raise RuntimeError(f"biblioteca libwiringPi.so nao encontrada{detail}")
+
+    def wiringPiSetup(self) -> int:
+        return int(self._setup())
+
+    def pinMode(self, pin: int, mode: int) -> None:
+        self._pin_mode(pin, mode)
+
+    def digitalWrite(self, pin: int, value: int) -> None:
+        self._digital_write(pin, value)
+
+
 class OrangePiGPIO:
     """Orange Pi backend using wiringOP's wPi numbering."""
 
@@ -38,10 +81,14 @@ class OrangePiGPIO:
         if wiringpi_module is None:
             try:
                 import wiringpi as wiringpi_module  # type: ignore[no-redef]
-            except ImportError as exc:
-                raise RuntimeError(
-                    "wiringOP-Python nao instalado; GPIO real permanece bloqueado"
-                ) from exc
+            except ImportError:
+                try:
+                    wiringpi_module = _CtypesWiringPi()
+                except RuntimeError as exc:
+                    raise RuntimeError(
+                        "wiringOP indisponivel; instale a libwiringPi ou "
+                        "wiringOP-Python antes de habilitar o GPIO real"
+                    ) from exc
         self._wiringpi = wiringpi_module
         self._pins: set[int] = set()
         result = self._wiringpi.wiringPiSetup()

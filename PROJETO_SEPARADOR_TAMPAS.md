@@ -544,10 +544,12 @@ visão ainda deve começar pela validação da câmera.
   da esteira e wPi 20 (pino físico 31, PD1) para a primeira saída de expulsão.
   O pino físico 30 é GND de referência. O pino físico 1 não é usado por ser
   alimentação de 3,3 V, e não um GPIO.
-- O backend real usa wiringOP-Python, mas o modo de simulação continua ativo
-  por padrão. Motor, contator e válvulas nunca devem ser ligados diretamente
-  aos GPIOs; a interface elétrica deve usar acionamento isolado e proteção
-  adequada para cargas indutivas.
+- O backend real usa a numeração wPi do wiringOP. Ele aceita tanto o módulo
+  wiringOP-Python quanto a biblioteca nativa `libwiringPi.so` via ctypes, pois
+  o binding Python oficial ainda não declara suporte ao Orange Pi 4 Pro. O modo
+  de simulação continua ativo por padrão. Motor, contator e válvulas nunca
+  devem ser ligados diretamente aos GPIOs; a interface elétrica deve usar
+  acionamento isolado e proteção adequada para cargas indutivas.
 - Cada saída de expulsão possui GPIO wPi, polaridade, atraso após o
   reconhecimento e duração do pulso. O scheduler executa esses eventos sem
   bloquear a captura da câmera. A tela Ajustes permite editar, adicionar e
