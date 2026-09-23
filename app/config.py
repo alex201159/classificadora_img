@@ -83,6 +83,8 @@ class RecognitionConfig:
     color_weight: float
     color_candidate_margin: float
     max_color_references_per_class: int
+    min_color_similarity: float
+    max_elongation_ratio: float
 
 
 @dataclass(frozen=True)
@@ -222,6 +224,14 @@ def load_config(path: str | Path) -> MachineConfig:
                 recognition.get("max_color_references_per_class", 2),
                 "recognition.max_color_references_per_class",
             ),
+            min_color_similarity=_ratio(
+                recognition.get("min_color_similarity", 0.70),
+                "recognition.min_color_similarity",
+            ),
+            max_elongation_ratio=_positive_float(
+                recognition.get("max_elongation_ratio", 2.0),
+                "recognition.max_elongation_ratio",
+            ),
         ),
     )
     _validate_config(parsed)
@@ -252,6 +262,8 @@ def _parse_outputs(outputs: dict[str, Any]) -> dict[str, OutputConfig]:
 def _validate_config(config: MachineConfig) -> None:
     if config.gpio_numbering != "wpi":
         raise ConfigError("machine.gpio_numbering deve ser wpi")
+    if config.recognition.max_elongation_ratio <= 1:
+        raise ConfigError("recognition.max_elongation_ratio deve ser maior que um")
     roi = config.camera.roi
     if roi.x + roi.width > config.camera.width or roi.y + roi.height > config.camera.height:
         raise ConfigError("ROI deve estar dentro das dimensoes configuradas da camera")

@@ -22,6 +22,8 @@ def test_load_default_config() -> None:
     assert config.recognition.color_weight == pytest.approx(0.55)
     assert config.recognition.color_candidate_margin == pytest.approx(0.12)
     assert config.recognition.max_color_references_per_class == 2
+    assert config.recognition.min_color_similarity == pytest.approx(0.70)
+    assert config.recognition.max_elongation_ratio == pytest.approx(2.0)
     assert config.recognition.max_tracking_distance_px == 60
     assert config.recognition.max_missed_frames == 3
     assert config.recognition.crop_margin_px == 15
@@ -73,6 +75,8 @@ outputs:
             0,
             "max_color_references_per_class",
         ),
+        ("recognition", "min_color_similarity", 0, "min_color_similarity"),
+        ("recognition", "max_elongation_ratio", 1, "max_elongation_ratio"),
         ("outputs.red_round", "pulse_ms", 0, "pulse_ms"),
         ("conveyor", "speed_mm_s", 0, "speed_mm_s"),
     ],

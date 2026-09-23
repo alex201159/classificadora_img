@@ -27,6 +27,7 @@ class _Reference:
     keypoints: Any
     descriptors: Any
     color_histogram: Any
+    elongation: float | None
     matcher: Any
 
 
@@ -46,6 +47,8 @@ class ReferenceImageClassifier:
         color_weight: float = 0.55,
         color_candidate_margin: float = 0.12,
         max_color_references_per_class: int = 2,
+        min_color_similarity: float = 0.70,
+        max_elongation_ratio: float = 2.0,
     ) -> None:
         self.catalog = catalog
         self.ratio_threshold = ratio_threshold
@@ -64,6 +67,12 @@ class ReferenceImageClassifier:
             raise ValueError("max_color_references_per_class deve ser maior que zero")
         self.color_candidate_margin = color_candidate_margin
         self.max_color_references_per_class = max_color_references_per_class
+        if not 0 < min_color_similarity < 1:
+            raise ValueError("min_color_similarity deve estar entre zero e um")
+        if max_elongation_ratio <= 1:
+            raise ValueError("max_elongation_ratio deve ser maior que um")
+        self.min_color_similarity = min_color_similarity
+        self.max_elongation_ratio = max_elongation_ratio
         self._references: list[_Reference] = []
         self._log = logging.getLogger(__name__)
         self._cv2 = self._import_cv2()
@@ -87,9 +96,9 @@ class ReferenceImageClassifier:
                     continue
                 gray = self._to_gray(image)
                 keypoints, descriptors = self._extract_features(gray)
+                reference_mask = self._object_mask(image)
                 if descriptors is None or len(keypoints) < 80:
-                    self._log.warning("Amostra sem detalhes suficientes ignorada: %s", path)
-                    continue
+                    self._log.debug("Amostra com poucos detalhes SIFT: %s", path)
                 references.append(
                     _Reference(
                         class_id=cap_class["id"],
@@ -97,8 +106,13 @@ class ReferenceImageClassifier:
                         path=path,
                         keypoints=keypoints,
                         descriptors=descriptors,
-                        color_histogram=self._color_histogram(image),
-                        matcher=self._build_matcher(descriptors),
+                        color_histogram=self._color_histogram(image, reference_mask),
+                        elongation=self._mask_elongation(reference_mask),
+                        matcher=(
+                            self._build_matcher(descriptors)
+                            if descriptors is not None and len(keypoints) >= 4
+                            else None
+                        ),
                     )
                 )
         self._references = references
@@ -109,11 +123,17 @@ class ReferenceImageClassifier:
         if frame is None or not self._references:
             return self._unknown()
 
-        query_color = self._color_histogram(frame, mask)
+        object_mask = mask if mask is not None else self._object_mask(frame)
+        query_color = self._color_histogram(frame, object_mask)
+        query_elongation = self._mask_elongation(object_mask)
+        color_result = self._classify_by_color_and_shape(
+            query_color,
+            query_elongation,
+        )
         gray = self._to_gray(frame)
-        query_keypoints, query_descriptors = self._extract_features(gray, mask)
+        query_keypoints, query_descriptors = self._extract_features(gray, object_mask)
         if query_descriptors is None or len(query_keypoints) < 40:
-            return self._unknown()
+            return color_result
 
         color_scores = [
             self._histogram_similarity(query_color, reference.color_histogram)
@@ -183,6 +203,8 @@ class ReferenceImageClassifier:
         margin = min(1.0, max(0.0, score_ratio - 1.0) / 1.5)
         confidence = min(0.99, best_score * 0.82 + margin * 0.18)
         if not accepted:
+            if color_result.accepted:
+                return color_result
             return ClassificationResult(
                 class_id=None,
                 class_name="NAO RECONHECIDO",
@@ -202,6 +224,72 @@ class ReferenceImageClassifier:
             color_similarity=color_similarity,
         )
 
+    def _classify_by_color_and_shape(
+        self,
+        query_color: Any,
+        query_elongation: float | None,
+    ) -> ClassificationResult:
+        if query_elongation is None:
+            return self._unknown()
+
+        by_class: dict[str, tuple[str, list[float], list[float]]] = {}
+        for reference in self._references:
+            class_name, scores, elongations = by_class.setdefault(
+                reference.class_id,
+                (reference.class_name, [], []),
+            )
+            scores.append(self._histogram_similarity(query_color, reference.color_histogram))
+            if reference.elongation is not None:
+                elongations.append(reference.elongation)
+
+        ranked = sorted(
+            by_class.items(),
+            key=lambda item: max(item[1][1], default=0.0),
+            reverse=True,
+        )
+        if not ranked:
+            return self._unknown()
+        class_id, (class_name, scores, elongations) = ranked[0]
+        best_color = max(scores, default=0.0)
+        second_color = max(ranked[1][1][1], default=0.0) if len(ranked) > 1 else 0.0
+        color_ratio = best_color / max(second_color, 0.01)
+        if len(scores) < 2 or not elongations:
+            return self._unknown()
+
+        import numpy as np
+
+        expected_elongation = float(np.median(elongations))
+        elongation_ratio = max(
+            query_elongation / max(expected_elongation, 0.01),
+            expected_elongation / max(query_elongation, 0.01),
+        )
+        accepted = (
+            best_color + 1e-6 >= self.min_color_similarity
+            and color_ratio >= self.ambiguity_ratio
+            and elongation_ratio <= self.max_elongation_ratio
+        )
+        if not accepted:
+            return ClassificationResult(
+                None,
+                "NAO RECONHECIDO",
+                min(0.99, best_color),
+                0,
+                0,
+                False,
+                best_color,
+            )
+        shape_quality = 1.0 / max(1.0, elongation_ratio)
+        confidence = min(0.99, best_color * 0.85 + shape_quality * 0.15)
+        return ClassificationResult(
+            class_id,
+            class_name,
+            confidence,
+            0,
+            0,
+            True,
+            best_color,
+        )
+
     def _score_references(
         self,
         query_keypoints: Any,
@@ -211,6 +299,9 @@ class ReferenceImageClassifier:
         scores: dict[int, tuple[int, int]] = {}
         for reference_index in reference_indexes:
             reference = self._references[reference_index]
+            if reference.matcher is None:
+                scores[reference_index] = (0, 0)
+                continue
             try:
                 pairs = reference.matcher.knnMatch(query_descriptors, k=2)
             except self._cv2.error:
@@ -301,6 +392,52 @@ class ReferenceImageClassifier:
             )
         ).astype(np.float32)
         return descriptor
+
+    def _object_mask(self, frame: Any) -> Any | None:
+        import numpy as np
+
+        gray = self._to_gray(frame)
+        blurred = self._cv2.GaussianBlur(gray, (5, 5), 0)
+        _threshold, mask = self._cv2.threshold(
+            blurred,
+            0,
+            255,
+            self._cv2.THRESH_BINARY + self._cv2.THRESH_OTSU,
+        )
+        border = np.concatenate((mask[0, :], mask[-1, :], mask[:, 0], mask[:, -1]))
+        if self._cv2.countNonZero(border.reshape(-1, 1)) > border.size / 2:
+            mask = self._cv2.bitwise_not(mask)
+        kernel = self._cv2.getStructuringElement(self._cv2.MORPH_ELLIPSE, (3, 3))
+        mask = self._cv2.morphologyEx(mask, self._cv2.MORPH_OPEN, kernel)
+        mask = self._cv2.morphologyEx(mask, self._cv2.MORPH_CLOSE, kernel)
+        contours, _hierarchy = self._cv2.findContours(
+            mask,
+            self._cv2.RETR_EXTERNAL,
+            self._cv2.CHAIN_APPROX_SIMPLE,
+        )
+        if not contours:
+            return None
+        object_mask = np.zeros_like(mask)
+        largest = max(contours, key=self._cv2.contourArea)
+        self._cv2.drawContours(object_mask, [largest], -1, 255, -1)
+        return object_mask
+
+    def _mask_elongation(self, mask: Any | None) -> float | None:
+        if mask is None:
+            return None
+        contours, _hierarchy = self._cv2.findContours(
+            mask.copy(),
+            self._cv2.RETR_EXTERNAL,
+            self._cv2.CHAIN_APPROX_SIMPLE,
+        )
+        if not contours:
+            return None
+        largest = max(contours, key=self._cv2.contourArea)
+        _center, (width, height), _angle = self._cv2.minAreaRect(largest)
+        shorter = min(width, height)
+        if shorter <= 0:
+            return None
+        return float(max(width, height) / shorter)
 
     @staticmethod
     def _normalize_histogram(histogram: Any) -> Any:

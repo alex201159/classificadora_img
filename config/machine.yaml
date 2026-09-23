@@ -62,3 +62,5 @@ recognition:
   color_weight: 0.55
   color_candidate_margin: 0.12
   max_color_references_per_class: 2
+  min_color_similarity: 0.70
+  max_elongation_ratio: 2.0

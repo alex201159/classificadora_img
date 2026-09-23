@@ -99,3 +99,40 @@ def test_classifier_uses_color_for_classes_with_same_shape(tmp_path: Path) -> No
     assert result.accepted is True
     assert result.class_name == "Tampa azul"
     assert result.color_similarity > 0.8
+
+
+def _smooth_wire(color: tuple[int, int, int], offset: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    image = np.full((260, 560, 3), 28, dtype=np.uint8)
+    mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    cv2.line(mask, (10, 225 - offset), (545, 25 + offset), 255, 34)
+    image[mask > 0] = color
+    return image, mask
+
+
+def test_classifier_uses_learned_color_and_geometry_for_smooth_object(tmp_path: Path) -> None:
+    catalog = CapCatalog(tmp_path / "catalog.json", tmp_path / "images")
+    red_class = catalog.create_class("Fio vermelho", "vermelha", "outro", "reject")
+    metal_class = catalog.create_class("Peca metalica", "cinza", "redonda", "reject")
+    for offset in (0, 8, -8):
+        wire, _mask = _smooth_wire((30, 45, 230), offset)
+        ok, encoded = cv2.imencode(".jpg", wire)
+        assert ok
+        catalog.add_sample(red_class["id"], encoded.tobytes(), "image/jpeg")
+        metal = np.full((360, 360, 3), 28, dtype=np.uint8)
+        cv2.circle(metal, (180, 180), 110 + abs(offset), (190, 190, 190), -1)
+        ok, encoded = cv2.imencode(".jpg", metal)
+        assert ok
+        catalog.add_sample(metal_class["id"], encoded.tobytes(), "image/jpeg")
+
+    classifier = ReferenceImageClassifier(catalog)
+    red_query, red_mask = _smooth_wire((28, 48, 235), 4)
+    green_query, green_mask = _smooth_wire((45, 190, 55), 4)
+
+    red_result = classifier.classify(red_query, red_mask)
+    green_result = classifier.classify(green_query, green_mask)
+
+    assert red_result.accepted is True
+    assert red_result.class_name == "Fio vermelho"
+    assert red_result.good_matches == 0
+    assert red_result.color_similarity >= 0.70
+    assert green_result.accepted is False

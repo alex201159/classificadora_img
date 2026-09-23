@@ -61,6 +61,8 @@ class FletMachineApp:
             color_weight=recognition.color_weight,
             color_candidate_margin=recognition.color_candidate_margin,
             max_color_references_per_class=recognition.max_color_references_per_class,
+            min_color_similarity=recognition.min_color_similarity,
+            max_elongation_ratio=recognition.max_elongation_ratio,
         )
         self.pipeline = ProductionPipeline(
             config,
