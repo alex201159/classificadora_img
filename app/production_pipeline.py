@@ -119,7 +119,11 @@ class ProductionPipeline:
             for cap in tracks:
                 if cap.missed_frames or cap.counted:
                     continue
-                crop, crop_mask = self.crop_detection(frame, cap.bounding_box)
+                crop, crop_mask = self.crop_detection(
+                    frame,
+                    cap.bounding_box,
+                    presence.mask,
+                )
                 classification_started = time.perf_counter()
                 result = self.classifier.classify(crop, crop_mask)
                 classification_total_ms += (time.perf_counter() - classification_started) * 1000
@@ -314,6 +318,7 @@ class ProductionPipeline:
         self,
         frame: Any,
         bounding_box: tuple[int, int, int, int],
+        foreground_mask: Any | None = None,
     ) -> tuple[Any, Any]:
         roi = resolve_roi(frame, self.config.camera.roi)
         x, y, width, height = bounding_box
@@ -326,6 +331,13 @@ class ProductionPipeline:
             raise ValueError("bounding box invalida para recorte da tampa")
         crop = frame[y1:y2, x1:x2]
         object_mask = self._bounding_box_mask(crop, x - x1, y - y1, width, height)
+        if foreground_mask is not None:
+            if foreground_mask.shape[:2] != frame.shape[:2]:
+                raise ValueError("mascara de primeiro plano deve ter o tamanho do frame")
+            foreground_crop = foreground_mask[y1:y2, x1:x2]
+            import cv2
+
+            object_mask = cv2.bitwise_and(object_mask, foreground_crop)
         return crop, object_mask
 
     @staticmethod

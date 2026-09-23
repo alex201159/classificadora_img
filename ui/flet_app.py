@@ -1590,9 +1590,11 @@ class FletMachineApp:
         import cv2
 
         detection = None
+        presence_mask = None
         if self.presence_detector.calibrated:
             try:
                 presence = self.presence_detector.analyze(self._current_frame)
+                presence_mask = presence.mask
                 detections = self.pipeline.detector.detect(
                     self._current_frame,
                     self.config.camera.roi,
@@ -1619,6 +1621,7 @@ class FletMachineApp:
             sample_frame, _sample_mask = self.pipeline.crop_detection(
                 self._current_frame,
                 detection.bounding_box,
+                presence_mask,
             )
         ok, encoded = cv2.imencode(".jpg", sample_frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
         if not ok:

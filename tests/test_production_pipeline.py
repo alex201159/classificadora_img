@@ -268,6 +268,25 @@ def test_new_unknown_object_does_not_inherit_previous_class_from_same_region() -
     controller.shutdown()
 
 
+def test_pipeline_classification_mask_excludes_background_inside_bounding_box() -> None:
+    pipeline, controller, _presence, detector = _pipeline([_unknown()])
+    frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    detector.detections = [Detection(100, 100, 900, (80, 80, 40, 40))]
+
+    result = pipeline.process(frame, now=0.0)
+
+    crop, mask = pipeline.crop_detection(
+        frame,
+        result.tracks[0].bounding_box,
+        result.presence.mask,
+    )
+    assert crop.shape[:2] == mask.shape
+    assert np.all(mask[:15, :] == 0)
+    assert np.all(mask[:, :15] == 0)
+    assert np.all(mask[15:55, 15:55] == 255)
+    controller.shutdown()
+
+
 def test_stable_hits_one_still_requires_same_track_in_two_frames() -> None:
     pipeline, controller, _presence, _detector = _pipeline(
         [_accepted()],
